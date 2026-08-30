@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.venv-1/
+venv/
+ENV/
+env/
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Node / JS
+node_modules/
+dist/
+build/
+.next/
+out/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backup
+.env.*.local
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.project
+.pydevproject
+.settings/
+
+# OS files
+DS_Store
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
