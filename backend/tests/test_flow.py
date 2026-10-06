@@ -1,3 +1,4 @@
+import time
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -14,23 +15,24 @@ def test_full_application_flow():
         "email": "shortpass@example.com",
         "password": "short"
     })
-    assert r.status_code == 422
+    assert r.status_code == 400
 
     # 3. Registration & Login
-    email = "integration_test@example.com"
+    email = f"integration_test_{int(time.time()*1000)}@example.com"
     client.post("/api/v1/auth/register", json={
         "name": "Integration User",
         "email": email,
-        "password": "password123"
+        "password": "Password123!"
     })
     
     r = client.post("/api/v1/auth/login", json={
         "email": email,
-        "password": "password123"
+        "password": "Password123!"
     })
     assert r.status_code == 200
     token = r.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+
 
     # 4. User Profile
     r = client.get("/api/v1/users/me", headers=headers)
@@ -39,8 +41,9 @@ def test_full_application_flow():
     # 5. Risk & KYC
     r = client.patch("/api/v1/users/me/risk-profile", headers=headers, json={"risk_profile": "aggressive"})
     assert r.status_code == 200
+    # Normal user direct KYC patch must be rejected with 403 Forbidden
     r = client.patch("/api/v1/users/me/kyc-status", headers=headers, json={"kyc_status": "verified"})
-    assert r.status_code == 200
+    assert r.status_code == 403
 
     # 6. Goals & Simulation
     r = client.post("/api/v1/goals", headers=headers, json={
@@ -74,7 +77,7 @@ def test_full_application_flow():
 
     r = client.get("/api/v1/portfolio", headers=headers)
     assert r.status_code == 200
-    rel_holding = [i for i in r.json() if i["symbol"] == "RELIANCE"][0]
+    rel_holding = [i for i in r.json() if i["symbol"] in ("RELIANCE", "RELIANCE.NS") or i["normalized_symbol"] == "RELIANCE.NS"][0]
     assert rel_holding["quantity"] == 15.0
 
     # 8. Market Quotes

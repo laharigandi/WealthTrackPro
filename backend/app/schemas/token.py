@@ -1,12 +1,11 @@
 from pydantic import BaseModel
-from typing import Optional
-from app.schemas.user import UserProfileResponse
+from typing import Optional, Any
 
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
-    user: Optional[UserProfileResponse] = None
+    user: Optional[Any] = None
 
 class TokenPayload(BaseModel):
     sub: Optional[str] = None

@@ -3,55 +3,125 @@
 @tailwind utilities;
 
 @layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
   html {
     font-size: 15px;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    -webkit-text-size-adjust: 100%;
   }
   
   body {
-    @apply text-slate-900 antialiased min-h-screen font-sans;
-    background: radial-gradient(circle at 90% 5%, rgba(34, 211, 238, 0.08), transparent 25%), radial-gradient(circle at 10% 90%, rgba(20, 184, 166, 0.04), transparent 25%), #f4f8fb;
+    @apply text-slate-900 bg-slate-100 antialiased min-h-screen font-sans;
     font-size: 1rem;
     line-height: 1.6;
-    transition: background-color 500ms ease-in-out, border-color 500ms ease-in-out, color 500ms ease-in-out, box-shadow 500ms ease-in-out;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    transition: background-color 300ms ease-in-out, border-color 300ms ease-in-out, color 300ms ease-in-out, box-shadow 300ms ease-in-out;
+  }
+
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
   }
   
+  img, svg, video, canvas, audio, iframe, embed, object {
+    max-width: 100%;
+  }
+
   .dark body {
-    @apply text-slate-100;
-    background: radial-gradient(circle at 90% 5%, rgba(6, 182, 212, 0.05), transparent 30%), radial-gradient(circle at 10% 90%, rgba(20, 184, 166, 0.03), transparent 30%), #070b12;
+    @apply text-slate-100 bg-slate-950 bg-none;
   }
 
   button, input, textarea, select, .card {
-    transition: background-color 500ms ease-in-out, border-color 500ms ease-in-out, color 500ms ease-in-out, box-shadow 500ms ease-in-out;
+    transition: background-color 300ms ease-in-out, border-color 300ms ease-in-out, color 300ms ease-in-out, box-shadow 300ms ease-in-out;
   }
 
   /* Smooth Custom Scrollbar */
   ::-webkit-scrollbar {
-    @apply w-2 h-2;
+    @apply w-1.5 h-1.5;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-slate-200 dark:bg-slate-900;
+    @apply bg-transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-400 rounded-full border-2 border-slate-200 dark:bg-slate-800 dark:border-slate-900;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-500 dark:bg-slate-700;
+    @apply bg-slate-300 dark:bg-slate-800 rounded-full border border-transparent hover:bg-slate-400 dark:hover:bg-slate-700 transition-colors;
   }
 }
 
 @layer components {
-  /* Ultra-modern Glassmorphism Card */
+  /* Premium Card Styles */
   .card {
-    @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm text-slate-900 dark:text-slate-100;
-    transition: all 500ms ease-in-out;
+    @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-md dark:shadow-2xl text-slate-900 dark:text-slate-100;
+    transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   
   .card-hover {
-    @apply card hover:border-slate-350 dark:hover:border-slate-750 hover:shadow-xl hover:translate-y-[-3px] hover:scale-[1.01] transition-all duration-500 ease-out;
+    @apply card hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-indigo-500/10 dark:hover:shadow-indigo-500/5 hover:-translate-y-1 hover:scale-[1.01] transition-all duration-300 ease-out;
   }
 
   .stat-card {
-    @apply card p-5 hover:border-cyan-500/30 hover:shadow-xl hover:translate-y-[-3px] hover:scale-[1.01] transition-all duration-500 ease-out relative overflow-hidden;
+    @apply card p-5 md:p-6 hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:shadow-indigo-500/10 dark:hover:shadow-indigo-500/5 hover:-translate-y-1 hover:scale-[1.01] transition-all duration-300 ease-out relative overflow-hidden;
+  }
+
+  .btn-interactive {
+    @apply transition-all duration-200 active:scale-95 hover:scale-[1.01] focus:outline-none;
+  }
+
+  /* Skeleton Loading Shimmer */
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .shimmer-bg {
+    background: linear-gradient(90deg, rgba(226, 232, 240, 0.5) 25%, rgba(203, 213, 225, 0.8) 50%, rgba(226, 232, 240, 0.5) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite linear;
+  }
+
+  .dark .shimmer-bg {
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 25%, rgba(51, 65, 85, 0.6) 50%, rgba(30, 41, 59, 0.4) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite linear;
+  }
+
+  /* Global Inputs Text Contrast Overrides */
+  input[type="text"], input[type="number"], input[type="password"], input[type="email"], select, textarea {
+    @apply bg-white text-slate-900 border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 dark:placeholder:text-slate-500 rounded-xl transition-all shadow-sm;
+  }
+
+  /* Vibrant Badges & Buttons */
+  .val-positive {
+    @apply text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/40 dark:border-emerald-800;
+  }
+
+  .val-negative {
+    @apply text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200 dark:text-rose-400 dark:bg-rose-950/40 dark:border-rose-800;
+  }
+
+  .alert-rebalance {
+    @apply text-amber-800 bg-amber-50 border border-amber-300 shadow-sm dark:text-amber-300 dark:bg-amber-950/50 dark:border-amber-700;
+  }
+
+  .btn-primary-gradient {
+    @apply bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white font-semibold shadow-lg hover:shadow-indigo-600/20 active:scale-95 transition-all duration-200;
   }
 
   .badge {
@@ -63,7 +133,7 @@
   }
   
   .badge-emerald {
-    @apply bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/20;
+    @apply bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-500/20;
   }
   
   .badge-violet {
@@ -71,7 +141,7 @@
   }
 
   .badge-amber {
-    @apply bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/20;
+    @apply bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/20;
   }
 
   .badge-rose {
@@ -79,10 +149,10 @@
   }
 
   .nav-item-active {
-    @apply bg-cyan-50 text-cyan-700 border-cyan-100/70;
+    @apply bg-indigo-50 text-indigo-700 border-indigo-100/70;
   }
   .dark .nav-item-active {
-    @apply bg-cyan-950/40 text-cyan-300 border-cyan-900/30;
+    @apply bg-indigo-950/40 text-indigo-300 border-indigo-900/30;
   }
 }
 
@@ -96,61 +166,32 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Mobile Responsive Layout
+   Mobile Responsive Layout Utilities
    ────────────────────────────────────────────────────────────── */
 
-/* Desktop: Show sidebar, hide bottom nav */
-.sidebar-desktop {
-  display: flex;
-}
-.mobile-bottom-nav {
-  display: none;
-}
-
-/* Mobile: Hide sidebar, show bottom nav */
-@media (max-width: 768px) {
-  .sidebar-desktop {
-    display: none !important;
-  }
-  .mobile-bottom-nav {
-    display: flex !important;
-  }
-  /* Add bottom padding so content doesn't go under the nav bar */
-  main {
-    padding-bottom: 5rem !important;
-  }
-  /* Responsive grid overrides for small screens */
-  .grid-cols-4 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .lg\:grid-cols-3 {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
-  .lg\:col-span-2 {
-    grid-column: span 1 / span 1;
-  }
-}
-
-/* Tablet: Sidebar visible but narrower */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .sidebar-desktop {
-    display: flex;
-    width: 56px;
-  }
-  .sidebar-desktop span {
-    display: none;
-  }
-  .sidebar-desktop .text-\[10px\] {
-    display: none;
-  }
-  .mobile-bottom-nav {
-    display: none;
-  }
-}
-
-/* Safe area for iPhone bottom bar */
+/* Safe area for mobile devices */
 .safe-area-bottom {
   padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.safe-area-top {
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+
+/* Hide scrollbar while keeping scrollability */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Responsive Table Wrapper */
+.table-responsive-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -161,6 +202,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 100%;
   min-height: 200px;
 }
+
 
 /* ─────────────────────────────────────────────────────────────
    Keyframe Animations
@@ -191,28 +233,6 @@ input[type="range"]::-webkit-slider-thumb {
 .animate-slide-in-right {
   animation: slide-in-right 0.3s ease-out;
 }
-
-/* ─────────────────────────────────────────────────────────────
-   Glassmorphism Mobile Cards
-   ────────────────────────────────────────────────────────────── */
-@media (max-width: 480px) {
-  .card {
-    @apply rounded-xl;
-  }
-  h1 {
-    font-size: 1.25rem;
-  }
-  .text-2xl {
-    font-size: 1.1rem !important;
-  }
-  .p-8 {
-    padding: 1.25rem !important;
-  }
-  .p-6 {
-    padding: 1rem !important;
-  }
-}
-
 
 /* ─────────────────────────────────────────────────────────────
    Dropdown and Notification Animations

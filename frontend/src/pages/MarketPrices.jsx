@@ -267,9 +267,9 @@ export const MarketPrices = () => {
     
     let flashClass = '';
     if (flash === 'up') {
-      flashClass = 'bg-emerald-50 border-emerald-450 dark:bg-emerald-950/20 dark:border-emerald-500 scale-[1.01] shadow-lg shadow-emerald-500/10';
+      flashClass = 'bg-emerald-50 border-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-800 scale-[1.01] shadow-lg shadow-emerald-500/10';
     } else if (flash === 'down') {
-      flashClass = 'bg-rose-50 border-rose-455 dark:bg-rose-955/20 dark:border-rose-500 scale-[1.01] shadow-lg shadow-rose-500/10';
+      flashClass = 'bg-rose-50 border-rose-300 dark:bg-rose-950/20 dark:border-rose-800 scale-[1.01] shadow-lg shadow-rose-500/10';
     }
 
     const hasError = !!q.error;
@@ -279,35 +279,35 @@ export const MarketPrices = () => {
         layout
         transition={{ layout: { duration: 0.7, ease: "easeInOut" } }}
         onClick={() => setCardExpanded(!cardExpanded)}
-        className="card p-6 space-y-4 hover:border-slate-550 dark:hover:border-slate-700 hover:shadow-xl hover:translate-y-[-3px] hover:scale-[1.01] transition-all duration-500 ease-out cursor-pointer relative"
+        className="card p-6 space-y-4 hover:border-indigo-500/50 dark:hover:border-indigo-500/40 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-indigo-500/10 dark:hover:shadow-indigo-500/5 transition-all duration-300 ease-out cursor-pointer relative"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 px-2 py-0.5 rounded-md">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-md">
                 {q.market_type || 'Stock'}
               </span>
               {hasError ? (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-red-500/10 text-red-405 px-2 py-0.5 rounded-md border border-red-500/20">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-rose-55 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-md">
                   Data unavailable
                 </span>
               ) : q.market_status === 'LIVE' ? (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-450 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse" /> Live Market Data
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-250 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 animate-pulse" /> Live Market Data
                 </span>
               ) : (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-500/10 text-slate-400 px-2 py-0.5 rounded-md border border-slate-500/20">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700/50">
                   Market Closed
                 </span>
               )}
             </div>
-            <h3 className="text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">{q.symbol}</h3>
-            <p className="text-sm font-semibold text-slate-650 dark:text-slate-405 truncate" title={q.name}>{q.name || '—'}</p>
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">{q.symbol}</h3>
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 truncate" title={q.name}>{q.name || '—'}</p>
           </div>
           
           <div className="flex flex-col items-end gap-1.5">
             {!hasError && (
-              <span className={`inline-flex items-center gap-1 text-xs font-black px-2 py-1 rounded-lg ${isPositive ? 'bg-emerald-500/10 text-emerald-450' : 'bg-rose-500/10 text-rose-450'}`}>
+              <span className={`inline-flex items-center gap-1 text-xs font-bold ${isPositive ? 'val-positive' : 'val-negative'}`}>
                 {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                 {formatPercentVal(q.change_percent)}
               </span>
@@ -316,7 +316,7 @@ export const MarketPrices = () => {
               {showDelete && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); removeFromWatchlist(q.symbol); }}
-                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-500/10 rounded-md transition-colors"
                   title="Remove from Watchlist"
                 >
                   <Trash2 size={15} />
@@ -334,7 +334,7 @@ export const MarketPrices = () => {
 
         {hasError ? (
           <div className="py-6 text-center border-t border-slate-100 dark:border-slate-800/80">
-            <p className="text-sm font-bold text-red-500 dark:text-red-400">Market data temporarily unavailable.</p>
+            <p className="text-sm font-bold text-rose-600 dark:text-rose-400">Market data temporarily unavailable.</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{q.error}</p>
           </div>
         ) : (
@@ -342,11 +342,11 @@ export const MarketPrices = () => {
             <div className="flex items-baseline justify-between border-t border-slate-200 dark:border-slate-800/80 pt-3">
               <div>
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Price</p>
-                <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-slate-100">{formatPriceVal(q.current_price, q.currency)}</p>
+                <p className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-slate-50">{formatPriceVal(q.current_price, q.currency)}</p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Day Change</p>
-                <p className={`text-sm font-black ${isPositive ? 'text-emerald-455' : 'text-rose-455'}`}>
+                <p className={`text-sm font-bold ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                   {formatChangeVal(q.change, q.currency)}
                 </p>
               </div>
@@ -393,196 +393,196 @@ export const MarketPrices = () => {
   return (
     <PageTransition>
       <div className="max-w-6xl mx-auto space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2 tracking-tight">
-            <TrendingUp className="text-cyan-400" size={32} /> Market Prices & Asset Watchlist
-          </h1>
-          <p className="text-base text-slate-600 dark:text-slate-400 mt-1 font-semibold">
-            Real-time market quotes provided by Yahoo Finance. Prices may be delayed depending on exchange/instrument.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {(refreshing || loading) && (
-            <span className="text-xs font-bold text-cyan-600 dark:text-cyan-400 animate-pulse bg-cyan-500/10 px-2.5 py-1.5 rounded-lg border border-cyan-500/20">
-              Updating...
-            </span>
-          )}
-          <button
-            onClick={() => fetchMarketData(false)}
-            disabled={loading || refreshing}
-            title="Refresh Market Quotes"
-            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 transition-all flex items-center gap-2 text-sm font-bold shadow-sm hover:shadow active:scale-95 disabled:opacity-50"
-          >
-            <RefreshCw size={15} className={refreshing || loading ? "animate-spin" : ""} /> Refresh
-          </button>
-        </div>
-      </div>
-
-      {msg && (
-        <div className={`p-4 rounded-xl border text-sm font-bold flex items-center gap-2.5 ${msg.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-450' : 'bg-rose-500/10 border-rose-500/20 text-rose-455'}`}>
-          {msg.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          {msg.text}
-        </div>
-      )}
-
-      {/* Live Symbol Search */}
-      <div className="card p-6 space-y-4 border-cyan-500/20 shadow-md">
-        <div className="flex items-center gap-2">
-          <Zap size={16} className="text-cyan-400" />
-          <h2 className="text-base font-black text-slate-800 dark:text-slate-200">Live Ticker Lookup</h2>
-          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Yahoo Finance API</span>
-        </div>
-        <p className="text-sm text-slate-600 dark:text-slate-400 font-semibold leading-relaxed">
-          Lookup any standard Yahoo symbol (e.g. <b>AAPL</b>, <b>NVDA</b>, <b>TATAMOTORS.NS</b>, <b>BTC-USD</b>) and add it to your watchlist.
-        </p>
-
-        <div className="relative">
-          <Search size={16} className="absolute left-3.5 top-3.5 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Type ticker symbol to fetch live quote..."
-            value={liveSearch}
-            onChange={(e) => handleLiveSearch(e.target.value)}
-            className="w-full pl-10 pr-10 py-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-355 dark:border-slate-800 text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all placeholder:text-slate-450 dark:placeholder:text-slate-550 shadow-sm"
-          />
-          {liveSearch && (
-            <button onClick={() => { setLiveSearch(''); setSearchResult(null); setSearchError(''); }} className="absolute right-3.5 top-3.5 text-slate-500 hover:text-slate-700 dark:text-slate-300">
-              <X size={18} />
-            </button>
-          )}
-        </div>
-
-        {searching && (
-          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-            <RefreshCw size={14} className="animate-spin" /> Searching live market data…
-          </div>
-        )}
-
-        {searchError && (
-          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-455 rounded-xl text-sm font-semibold flex items-center gap-2">
-            <AlertCircle size={15} /> {searchError}
-          </div>
-        )}
-
-        {searchResult && (
-          <div className="max-w-sm border border-cyan-500/20 rounded-2xl overflow-hidden shadow-md">
-            <QuoteCard q={searchResult} isLive={true} />
-            <div className="bg-cyan-500/[0.04] dark:bg-cyan-950/10 p-3 flex justify-end border-t border-slate-100 dark:border-slate-800/80">
-              <Button 
-                onClick={() => addToWatchlist(searchResult.symbol)}
-                className="text-xs py-1.5 px-3 flex items-center gap-1 font-bold"
-                variant="secondary"
-              >
-                <Plus size={13} /> Add to Watchlist
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Watchlist Section Header */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800 pt-6">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Active Watchlist</h2>
-          {lastUpdated && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-bold">
-              Last updated: {lastUpdated}
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 dark:text-slate-50 flex items-center gap-2 tracking-tight">
+              <TrendingUp className="text-indigo-600 dark:text-indigo-400 shrink-0" size={28} /> Market Prices & Watchlist
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1 font-medium">
+              Real-time market quotes provided by Yahoo Finance. Prices may be delayed depending on exchange/instrument.
             </p>
-          )}
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3 self-stretch sm:self-auto justify-end">
+            {(refreshing || loading) && (
+              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 animate-pulse bg-indigo-500/10 px-2.5 py-1.5 rounded-lg border border-indigo-500/20">
+                Updating...
+              </span>
+            )}
+            <button
+              onClick={() => fetchMarketData(false)}
+              disabled={loading || refreshing}
+              title="Refresh Market Quotes"
+              className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 transition-all flex items-center gap-2 text-xs sm:text-sm font-bold shadow-sm hover:shadow active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={15} className={refreshing || loading ? "animate-spin" : ""} /> Refresh
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          {/* Watchlist Filter Input */}
-          <div className="relative w-full sm:w-64">
-            <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+        {msg && (
+          <div className={`p-4 rounded-xl border text-sm font-bold flex items-center gap-2.5 ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-250 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-rose-50 border-rose-250 text-rose-600 dark:bg-rose-955/40 dark:text-rose-455'}`}>
+            {msg.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            {msg.text}
+          </div>
+        )}
+
+        {/* Live Symbol Search */}
+        <div className="card p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-md">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Zap size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-50">Live Ticker Lookup</h2>
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Yahoo Finance API</span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+            Lookup any standard Yahoo symbol (e.g. <b>AAPL</b>, <b>NVDA</b>, <b>TATAMOTORS.NS</b>, <b>BTC-USD</b>) and add it to your watchlist.
+          </p>
+
+          <div className="relative">
+            <Search size={16} className="absolute left-3.5 top-3.5 text-slate-500" />
             <input
               type="text"
-              placeholder="Filter watchlist..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 shadow-sm"
+              placeholder="Type ticker symbol to fetch live quote..."
+              value={liveSearch}
+              onChange={(e) => handleLiveSearch(e.target.value)}
+              className="w-full pl-10 pr-10 py-2.5 sm:py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm sm:text-base text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-sm"
             />
+            {liveSearch && (
+              <button onClick={() => { setLiveSearch(''); setSearchResult(null); setSearchError(''); }} className="absolute right-3.5 top-3 text-slate-500 hover:text-slate-700 dark:text-slate-300 p-1">
+                <X size={18} />
+              </button>
+            )}
           </div>
 
-          {/* Asset Tabs */}
-          <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto">
-            {['ALL', 'NSE', 'US', 'CRYPTO'].map((type) => (
-              <button
-                key={type}
-                onClick={() => setSelectedAssetType(type)}
-                className={`px-3 py-1 rounded-lg text-xs font-black transition-all whitespace-nowrap border ${
-                  selectedAssetType === type
-                    ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                {type === 'ALL' ? 'All Assets' : type}
-              </button>
+          {searching && (
+            <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+              <RefreshCw size={14} className="animate-spin" /> Searching live market data…
+            </div>
+          )}
+
+          {searchError && (
+            <div className="p-3.5 val-negative rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2">
+              <AlertCircle size={15} /> {searchError}
+            </div>
+          )}
+
+          {searchResult && (
+            <div className="max-w-sm border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-md">
+              <QuoteCard q={searchResult} isLive={true} />
+              <div className="bg-slate-50 dark:bg-slate-950/40 p-3 flex justify-end border-t border-slate-100 dark:border-slate-800/80">
+                <Button 
+                  onClick={() => addToWatchlist(searchResult.symbol)}
+                  className="text-xs py-1.5 px-3 flex items-center gap-1 font-bold"
+                  variant="secondary"
+                >
+                  <Plus size={13} /> Add to Watchlist
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Watchlist Section Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800 pt-6">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">Active Watchlist</h2>
+            {lastUpdated && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-bold">
+                Last updated: {lastUpdated}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            {/* Watchlist Filter Input */}
+            <div className="relative w-full sm:w-64">
+              <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Filter watchlist..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-sm"
+              />
+            </div>
+
+            {/* Asset Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
+              {['ALL', 'NSE', 'US', 'CRYPTO'].map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setSelectedAssetType(type)}
+                  className={`px-3 py-1 rounded-lg text-xs font-black transition-all whitespace-nowrap border cursor-pointer ${
+                    selectedAssetType === type
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {type === 'ALL' ? 'All Assets' : type}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Watchlist Cards Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+            <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
+            <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
+            <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
+          </div>
+        ) : filteredQuotes.length === 0 ? (
+          <div className="text-center py-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm text-slate-600 dark:text-slate-400 text-sm font-bold">
+            <Zap size={24} className="mx-auto text-slate-400 mb-2 opacity-50" />
+            No watchlist assets match your filter criteria.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredQuotes.map((q) => (
+              <QuoteCard key={q.symbol} q={q} isLive={false} showDelete={true} />
             ))}
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Watchlist Cards Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
-          <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
-          <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
-          <div className="h-56 bg-slate-200 dark:bg-slate-900 rounded-2xl" />
-        </div>
-      ) : filteredQuotes.length === 0 ? (
-        <div className="text-center py-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm text-slate-600 dark:text-slate-400 text-sm font-bold">
-          <Zap size={24} className="mx-auto text-slate-400 mb-2 opacity-50" />
-          No watchlist assets match your filter criteria.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredQuotes.map((q) => (
-            <QuoteCard key={q.symbol} q={q} isLive={false} showDelete={true} />
-          ))}
-        </div>
-      )}
-
-      {/* Buy Asset Quick Modal */}
-      {buyModalQuote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="card max-w-sm w-full p-6 space-y-4 relative border-slate-300 dark:border-slate-700 shadow-2xl">
-            <button onClick={() => setBuyModalQuote(null)} className="absolute top-4 right-4 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"><X size={20} /></button>
-            <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <ShoppingCart size={18} className="text-cyan-400" /> Acquire {buyModalQuote.symbol}
-            </h3>
-            <div className="p-3 bg-white/60 dark:bg-slate-900/60 rounded-xl space-y-1 text-sm">
-              <p className="text-slate-600 dark:text-slate-400">{buyModalQuote.name}</p>
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                Unit Price: {formatPriceVal(buyModalQuote.current_price, buyModalQuote.currency)}
-              </p>
+        {/* Buy Asset Quick Modal */}
+        {buyModalQuote && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="card max-w-sm w-full p-4 sm:p-6 space-y-4 relative border-slate-200 dark:border-slate-800 shadow-2xl bg-white dark:bg-slate-900 rounded-3xl max-h-[90vh] overflow-y-auto">
+              <button onClick={() => setBuyModalQuote(null)} className="absolute top-4 right-4 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 p-1 cursor-pointer"><X size={20} /></button>
+              <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-50 flex items-center gap-2">
+                <ShoppingCart size={18} className="text-indigo-600 dark:text-indigo-400" /> Acquire {buyModalQuote.symbol}
+              </h3>
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-slate-200/50 dark:border-slate-800/50 space-y-1 text-sm">
+                <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm">{buyModalQuote.name}</p>
+                <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-50">
+                  Unit Price: {formatPriceVal(buyModalQuote.current_price, buyModalQuote.currency)}
+                </p>
+              </div>
+              <form onSubmit={handleBuySubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Quantity to Purchase</label>
+                  <input
+                    type="number" step="any" required min="0.001" value={buyQuantity}
+                    onChange={(e) => setBuyQuantity(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                  />
+                </div>
+                <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                  <span>Estimated Total:</span>
+                  <span>
+                    {formatPriceVal(buyModalQuote.current_price * parseFloat(buyQuantity || 0), buyModalQuote.currency)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={() => setBuyModalQuote(null)} className="text-xs sm:text-sm py-2 px-3 font-bold">Cancel</Button>
+                  <Button type="submit" loading={buying} className="text-xs sm:text-sm py-2 px-4 font-bold">Confirm Buy</Button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={handleBuySubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Quantity to Purchase</label>
-                <input
-                  type="number" step="any" required min="0.001" value={buyQuantity}
-                  onChange={(e) => setBuyQuantity(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-              <div className="p-3 bg-slate-900/40 rounded-xl flex items-center justify-between text-sm font-bold text-cyan-300">
-                <span>Estimated Total:</span>
-                <span>
-                  {formatPriceVal(buyModalQuote.current_price * parseFloat(buyQuantity || 0), buyModalQuote.currency)}
-                </span>
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setBuyModalQuote(null)} className="text-sm py-2 px-3 font-bold">Cancel</Button>
-                <Button type="submit" loading={buying} className="text-sm py-2 px-4 font-bold">Confirm Buy</Button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </PageTransition>
   );

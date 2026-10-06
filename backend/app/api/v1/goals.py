@@ -1,12 +1,15 @@
 import math
+import logging
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.models.goal import Goal
+from app.models.notification import Notification
 from app.schemas.goal import (
     GoalCreate,
     GoalUpdate,
@@ -15,6 +18,9 @@ from app.schemas.goal import (
     GoalSimulationResponse,
 )
 from app.api.deps import get_current_user
+from app.services.notifications import NotificationService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
@@ -67,19 +73,38 @@ def create_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    new_goal = Goal(
-        user_id=current_user.id,
-        title=goal_in.title,
-        category=goal_in.category,
-        target_amount=goal_in.target_amount,
-        current_amount=goal_in.current_amount,
-        monthly_contribution=goal_in.monthly_contribution,
-        target_date=goal_in.target_date,
-        expected_return_rate=goal_in.expected_return_rate,
-    )
-    db.add(new_goal)
-    db.commit()
-    db.refresh(new_goal)
+    # Check for duplicate goal title for this user (case-insensitive)
+    existing = db.query(Goal).filter(
+        Goal.user_id == current_user.id,
+        func.lower(Goal.title) == goal_in.title.strip().lower()
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"A goal with the title '{goal_in.title.strip()}' already exists."
+        )
+
+    try:
+        new_goal = Goal(
+            user_id=current_user.id,
+            title=goal_in.title.strip(),
+            category=goal_in.category or "Custom Goal",
+            target_amount=goal_in.target_amount,
+            current_amount=goal_in.current_amount or 0.0,
+            monthly_contribution=goal_in.monthly_contribution or 0.0,
+            target_date=goal_in.target_date,
+            expected_return_rate=goal_in.expected_return_rate if goal_in.expected_return_rate is not None else 8.0,
+        )
+        db.add(new_goal)
+        db.commit()
+        db.refresh(new_goal)
+        NotificationService.evaluate_and_broadcast(db, current_user.id)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create goal: {str(e)}"
+        )
 
     metrics = calculate_goal_metrics(new_goal)
     return GoalResponse(
@@ -138,12 +163,36 @@ def update_goal(
     if not goal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found.")
 
-    update_data = goal_in.model_dump(exclude_unset=True)
-    for field, val in update_data.items():
-        setattr(goal, field, val)
+    if goal_in.title is not None:
+        duplicate = db.query(Goal).filter(
+            Goal.user_id == current_user.id,
+            Goal.id != goal_id,
+            func.lower(Goal.title) == goal_in.title.strip().lower()
+        ).first()
+        if duplicate:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A goal with the title '{goal_in.title.strip()}' already exists."
+            )
 
-    db.commit()
-    db.refresh(goal)
+    update_data = goal_in.model_dump(exclude_unset=True)
+    # Remove virtual or non-model fields if any
+    update_data.pop("description", None)
+
+    try:
+        for field, val in update_data.items():
+            setattr(goal, field, val)
+
+        db.commit()
+        db.refresh(goal)
+        NotificationService.evaluate_and_broadcast(db, current_user.id)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update goal: {str(e)}"
+        )
+
     metrics = calculate_goal_metrics(goal)
     return GoalResponse(
         id=goal.id,
@@ -171,8 +220,23 @@ def delete_goal(
     goal = db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == current_user.id).first()
     if not goal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found.")
-    db.delete(goal)
-    db.commit()
+    try:
+        # Clean up any milestone alerts associated with this deleted goal
+        db.query(Notification).filter(
+            Notification.user_id == current_user.id,
+            Notification.entity_type == "goal",
+            Notification.entity_id == goal_id,
+        ).delete()
+        db.delete(goal)
+        db.commit()
+        NotificationService.evaluate_and_broadcast(db, current_user.id)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting goal {goal_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete goal: {str(e)}"
+        )
     return None
 
 
@@ -195,16 +259,26 @@ def simulate_goal(
     sim_target_date = sim_in.target_date if sim_in.target_date is not None else orig_target_date
     r_rate = sim_in.expected_return_rate if sim_in.expected_return_rate is not None else goal.expected_return_rate
 
-    # Calculate months between now and sim_target_date
+    # Validate target date format and check if in the past
     try:
         t_date = datetime.strptime(sim_target_date, "%Y-%m-%d")
     except ValueError:
         try:
-            t_date = datetime.strptime(sim_target_date, "%Y")
+            t_date = datetime.strptime(f"{sim_target_date}-12-31", "%Y-%m-%d")
         except ValueError:
-            t_date = datetime.now()
-
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Target date must be in YYYY-MM-DD format."
+            )
+            
     now = datetime.now()
+    if t_date.date() < now.date():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Target date cannot be in the past."
+        )
+
+    # Calculate months between now and sim_target_date
     months_left = max(1, (t_date.year - now.year) * 12 + (t_date.month - now.month))
     
     monthly_r = (r_rate / 100.0) / 12.0
@@ -230,6 +304,18 @@ def simulate_goal(
     orig_prog = min(100.0, max(0.0, (curr_amt / target_amt) * 100)) if target_amt > 0 else 0.0
     sim_prog = min(100.0, max(0.0, (future_val / target_amt) * 100)) if target_amt > 0 else 0.0
 
+    # Calculate status and surplus
+    projected_surplus = round(future_val - target_amt, 2)
+    
+    if curr_amt >= target_amt:
+        simulation_status = "Goal Already Achieved 🎉"
+    elif future_val >= target_amt:
+        simulation_status = "Projected Target Achievable 🎉"
+    elif future_val >= 0.90 * target_amt:
+        simulation_status = "Projected to Fall Short ⚠️"
+    else:
+        simulation_status = "Additional Contribution Required ⚠️"
+
     return GoalSimulationResponse(
         goal_id=goal.id,
         target_amount=round(target_amt, 2),
@@ -246,4 +332,6 @@ def simulate_goal(
         estimated_total_future_value=round(future_val, 2),
         required_monthly_contribution=round(max(0.0, req_pmt), 2),
         is_on_track=future_val >= target_amt,
+        simulation_status=simulation_status,
+        projected_surplus=projected_surplus,
     )

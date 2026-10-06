@@ -7,6 +7,11 @@ import bcrypt
 from app.config import settings
 
 
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 # ---------------------------------------------------------------------------
 # Password hashing — uses bcrypt directly (bypasses passlib which has a known
 # compatibility bug with bcrypt >= 4.0: it tries to read bcrypt.__about__ which
@@ -24,11 +29,43 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not plain_password or not hashed_password:
         return False
     try:
-        pw_bytes = plain_password.encode("utf-8")
-        hash_bytes = hashed_password.encode("utf-8")
-        return bcrypt.checkpw(pw_bytes, hash_bytes)
+        return pwd_context.verify(plain_password, hashed_password)
     except Exception:
-        return False
+        try:
+            pw_bytes = plain_password.encode("utf-8")
+            hash_bytes = hashed_password.encode("utf-8")
+            return bcrypt.checkpw(pw_bytes, hash_bytes)
+        except Exception:
+            return False
+
+
+def validate_password_strength(password: str) -> tuple[bool, list[str]]:
+    """
+    Validate password against security policy:
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character
+    """
+    if not password:
+        return False, ["at least 8 characters"]
+        
+    errors = []
+    if len(password) < 8:
+        errors.append("at least 8 characters")
+    if not any(c.isupper() for c in password):
+        errors.append("an uppercase letter")
+    if not any(c.islower() for c in password):
+        errors.append("a lowercase letter")
+    if not any(c.isdigit() for c in password):
+        errors.append("a number")
+    if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?" for c in password):
+        errors.append("a special character (!@#$%^&*...)")
+        
+    if errors:
+        return False, errors
+    return True, []
 
 
 # ---------------------------------------------------------------------------

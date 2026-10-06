@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Mail, Lock, TrendingUp, Eye, EyeOff, Sparkles,
-  ArrowRight, CheckCircle2, AlertCircle
+  ArrowRight, CheckCircle2, AlertCircle, ShieldCheck,
+  Sun, Moon, ArrowLeft
 } from 'lucide-react';
-import { loginUser } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { LoginVisualCard } from '../components/auth/LoginVisualCard';
 
 /* ======================================================================
-   GOOGLE SVG ICON
+   OFFICIAL GOOGLE SVG ICON
 ====================================================================== */
 const GoogleIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="shrink-0">
     <path d="M17.64 9.20455C17.64 8.56636 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.635 11.97 13.0009 12.9232 12.0477 13.5614V15.8195H14.9564C16.6582 14.2527 17.64 11.9455 17.64 9.20455Z" fill="#4285F4"/>
     <path d="M9 18C11.43 18 13.4673 17.1941 14.9564 15.8195L12.0477 13.5614C11.2418 14.1014 10.2109 14.4205 9 14.4205C6.65591 14.4205 4.67182 12.8373 3.96409 10.71H0.957275V13.0418C2.43818 15.9832 5.48182 18 9 18Z" fill="#34A853"/>
     <path d="M3.96409 10.71C3.78409 10.17 3.68182 9.59318 3.68182 9C3.68182 8.40682 3.78409 7.83 3.96409 7.29V4.95818H0.957273C0.347727 6.17318 0 7.54773 0 9C0 10.4523 0.347727 11.8268 0.957273 13.0418L3.96409 10.71Z" fill="#FBBC05"/>
@@ -21,407 +23,432 @@ const GoogleIcon = () => (
 
 export const Login = () => {
   const [form, setForm]                 = useState({ email: '', password: '' });
+  const [fieldErrors, setFieldErrors]   = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe]     = useState(false);
   const [error, setError]               = useState('');
-  const [loading, setLoading]           = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const { login }      = useAuth();
+  const { login, user, token } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate       = useNavigate();
   const location       = useLocation();
-  const successMessage = location.state?.message || '';
 
-  const handleChange = (field) => (e) =>
-    setForm((f) => ({ ...f, [field]: e.target.value }));
+  // If already authenticated, redirect to dashboard
+  useEffect(() => {
+    const hasToken = token || localStorage.getItem('access_token');
+    if (hasToken || user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, token, navigate]);
+
+  // Handle success message from location state with auto-dismiss and history clean-up
+  useEffect(() => {
+    if (location.state?.message) {
+      setSuccessMessage(location.state.message);
+      window.history.replaceState({}, document.title);
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state]);
+
+  // Parse error / message query parameters on load
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const errParam = params.get('error') || params.get('error_description');
+    const msgParam = params.get('message');
+    if (errParam) {
+      setError(errParam);
+    } else if (msgParam) {
+      setError('');
+      setSuccessMessage(msgParam);
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [location.search]);
+
+  const validateField = (field, value) => {
+    let err = '';
+    if (field === 'email') {
+      if (!value.trim()) {
+        err = 'Email address is required.';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
+        err = 'Please enter a valid email address.';
+      }
+    } else if (field === 'password') {
+      if (!value) {
+        err = 'Password is required.';
+      }
+    }
+    setFieldErrors(prev => ({ ...prev, [field]: err }));
+    return !err;
+  };
+
+  const handleChange = (field) => (e) => {
+    const val = e.target.value;
+    setForm((f) => ({ ...f, [field]: val }));
+    if (fieldErrors[field]) {
+      validateField(field, val);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+
+    const emailValid = validateField('email', form.email);
+    const passwordValid = validateField('password', form.password);
+
+    if (!emailValid || !passwordValid) {
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      const data = await loginUser(form);
-      await login(data);
-      navigate('/dashboard');
+      await login(form.email, form.password);
+      navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          'Invalid email or password. Please verify your credentials.'
-      );
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        setError(detail[0]?.msg || 'Validation failed. Please check your credentials.');
+      } else {
+        setError('Invalid email or password. Please verify your credentials.');
+      }
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  const fillDemo = () => setForm({ email: 'john@example.com', password: 'password123' });
-
-  const handleGoogleLogin = () => {
+  const handleGoogleRedirectLogin = () => {
     setGoogleLoading(true);
+    setError('');
     const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api/v1';
     window.location.href = `${BASE_URL}/auth/google/login`;
   };
 
+  const fillDemo = () => {
+    setForm({ email: 'john@example.com', password: 'password123' });
+    setFieldErrors({ email: '', password: '' });
+  };
+
   return (
-    <>
-      <style>
-        {`
-          @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes fadeInRight {
-            from { opacity: 0; transform: translateX(12px); }
-            to { opacity: 1; transform: translateX(0); }
-          }
-        `}
-      </style>
+    <div className="min-h-screen lg:h-screen lg:max-h-screen w-full flex flex-col bg-slate-50 dark:bg-[#020617] text-slate-900 dark:text-slate-100 font-sans selection:bg-sky-500/20 selection:text-sky-600 dark:selection:text-sky-300 relative overflow-x-hidden lg:overflow-hidden transition-colors duration-300">
       
-      {/* WRAPPER */}
-      <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 font-['Inter',sans-serif] relative flex flex-col justify-center overflow-x-hidden">
+      {/* Background Subtle Mesh & Ambient Glow */}
+      <div 
+        className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05] pointer-events-none"
+        style={{
+          backgroundImage: 'radial-gradient(#38BDF8 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }} 
+      />
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-sky-500/10 dark:bg-sky-500/15 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/10 dark:bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none" />
+
+      {/* ======================================================================
+          COMPACT TOP HEADER (~52px)
+      ====================================================================== */}
+      <header className="relative z-20 w-full shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/75 dark:bg-[#020617]/75 backdrop-blur-md px-4 sm:px-8 lg:px-12 py-2 sm:py-2.5 flex items-center justify-between transition-colors">
         
-        {/* DECORATIVE BACKGROUND SHAPES */}
-        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-cyan-400/20 dark:bg-cyan-500/10 blur-[100px] pointer-events-none z-0" />
-        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 rounded-full bg-emerald-400/10 dark:bg-emerald-500/5 blur-[120px] pointer-events-none z-0" />
+        {/* Brand Logo & Back to Home */}
+        <Link 
+          to="/" 
+          id="login-brand-link"
+          className="flex items-center gap-2.5 group focus:outline-none focus:ring-2 focus:ring-sky-500/50 rounded-xl"
+          aria-label="Back to WealthTrack Pro Home"
+        >
+          <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-gradient-to-br from-sky-400 via-cyan-500 to-emerald-500 flex items-center justify-center text-slate-950 shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform duration-200 shrink-0">
+            <TrendingUp size={18} strokeWidth={2.4} />
+          </div>
+          <div className="flex flex-col">
+            <div className="text-sm sm:text-base font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 leading-tight">
+              WEALTHTRACK <span className="text-sky-500 dark:text-sky-400">PRO</span>
+            </div>
+            <span className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium tracking-wide hidden sm:inline">
+              Personal Wealth Intelligence
+            </span>
+          </div>
+        </Link>
 
-        {/* MAIN LAYOUT */}
-        <div className="relative z-10 flex h-full w-full flex-col lg:flex-row min-h-screen">
+        {/* Top Right: Back to Home + Theme Toggle */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            to="/"
+            id="login-back-home-btn"
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+          >
+            <ArrowLeft size={13} />
+            <span className="hidden sm:inline">Back to Home</span>
+          </Link>
+
+          <button
+            onClick={toggleTheme}
+            id="login-theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-850 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-750 transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-sky-500/50 cursor-pointer"
+          >
+            {theme === 'dark' ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} className="text-slate-700" />}
+          </button>
+        </div>
+
+      </header>
+
+      {/* ======================================================================
+          TWO-CARD AUTHENTICATION CONTAINER (SIDE-BY-SIDE ON DESKTOP)
+      ====================================================================== */}
+      <main className="relative z-10 flex-1 min-h-0 flex flex-col justify-center items-center px-4 sm:px-6 lg:px-8 py-2 sm:py-3 lg:py-4 overflow-y-auto lg:overflow-hidden">
+        
+        {/* Balanced Two-Card Wrapper */}
+        <div className="w-full max-w-[1180px] xl:max-w-[1240px] grid grid-cols-1 lg:grid-cols-12 gap-5 xl:gap-6 items-stretch my-auto animate-fade-in">
           
-          {/* ======================================================================
-              LEFT SECTION: LOGIN CARD (40%)
-          ====================================================================== */}
-          <section className="relative z-20 flex min-h-screen w-full lg:w-[40%] shrink-0 items-center justify-center px-6 py-12 lg:px-8">
-            
-            <div 
-              className="w-full max-w-[400px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl opacity-0 z-10"
-              style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}
-            >
+          {/* ==================================================================
+              LEFT CARD (DESKTOP) / FIRST (MOBILE): LOGIN FORM CARD (~46% width on desktop)
+          ================================================================== */}
+          <div 
+            id="login-form-card"
+            className="order-1 lg:order-1 lg:col-span-6 xl:col-span-5 flex flex-col justify-center bg-white dark:bg-[#0F172A] border border-slate-200/90 dark:border-slate-800/90 rounded-2xl p-5 sm:p-6 xl:p-7 shadow-xl shadow-slate-900/5 dark:shadow-2xl dark:shadow-black/50 transition-all"
+          >
+            {/* Card Header */}
+            <div className="mb-3.5 sm:mb-4 text-left">
+              <h1 className="text-xl sm:text-2xl xl:text-[25px] font-black tracking-tight text-slate-900 dark:text-slate-50">
+                Welcome back
+              </h1>
+              <p className="text-xs xl:text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Sign in to continue to your WealthTrack Pro account.
+              </p>
+            </div>
+
+            {/* Success Notification */}
+            {successMessage && (
+              <div className="flex items-start gap-2 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 text-xs font-medium mb-2.5 animate-fade-in">
+                <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                <span>{successMessage}</span>
+              </div>
+            )}
+
+            {/* Error Notification */}
+            {error && (
+              <div className="flex items-start gap-2 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50 text-xs font-medium mb-2.5 animate-fade-in">
+                <AlertCircle size={14} className="text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Authentication Form */}
+            <form onSubmit={handleSubmit} noValidate className="space-y-2.5 sm:space-y-3">
               
-              {/* LOGO */}
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/25">
-                  <TrendingUp size={20} className="text-white" strokeWidth={2.5} />
+              {/* Email Address Field */}
+              <div className="space-y-1 text-left">
+                <label htmlFor="email" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
+                    <Mail size={16} />
+                  </div>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="Enter your email"
+                    value={form.email}
+                    onChange={handleChange('email')}
+                    className={`w-full h-10 pl-9 pr-3.5 rounded-xl border text-xs sm:text-sm font-medium transition-all bg-white dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none ${
+                      fieldErrors.email
+                        ? 'border-rose-300 dark:border-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30'
+                        : 'border-slate-300 dark:border-slate-700 focus:border-sky-500 dark:focus:border-sky-400 focus:ring-1 focus:ring-sky-500/30'
+                    }`}
+                  />
                 </div>
-                <span className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight leading-tight">
-                  WealthTrack Pro
-                </span>
+                {fieldErrors.email && (
+                  <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400 mt-0.5 pl-1">
+                    {fieldErrors.email}
+                  </p>
+                )}
               </div>
 
-              {/* WELCOME TITLE */}
-              <div className="mb-6">
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight mb-1.5">
-                  Welcome Back! 👋
-                </h1>
-                <p className="text-base text-slate-600 dark:text-slate-400">
-                  Sign in to continue your financial journey.
-                </p>
+              {/* Password Field */}
+              <div className="space-y-1 text-left">
+                <label htmlFor="password" className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
+                    <Lock size={16} />
+                  </div>
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
+                    value={form.password}
+                    onChange={handleChange('password')}
+                    className={`w-full h-10 pl-9 pr-10 rounded-xl border text-xs sm:text-sm font-medium transition-all bg-white dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none ${
+                      fieldErrors.password
+                        ? 'border-rose-300 dark:border-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30'
+                        : 'border-slate-300 dark:border-slate-700 focus:border-sky-500 dark:focus:border-sky-400 focus:ring-1 focus:ring-sky-500/30'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400 mt-0.5 pl-1">
+                    {fieldErrors.password}
+                  </p>
+                )}
               </div>
 
-              {/* SUCCESS MESSAGE */}
-              {successMessage && (
-                <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-500/20 text-sm mb-4 font-semibold">
-                  <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-                  <span>{successMessage}</span>
-                </div>
-              )}
-
-              {/* ERROR MESSAGE */}
-              {error && (
-                <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 text-red-700 dark:bg-red-955/40 dark:text-red-405 border border-red-200 dark:border-red-900 text-sm mb-4 font-semibold">
-                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} noValidate className="space-y-4">
+              {/* Remember Me / Forgot Password Row */}
+              <div className="flex items-center justify-between pt-0.5">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    id="remember-me"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sky-500 focus:ring-sky-500/40 focus:ring-offset-0 cursor-pointer"
+                  />
+                  <span className="text-[11.5px] font-medium text-slate-600 dark:text-slate-400">
+                    Remember me
+                  </span>
+                </label>
                 
-                {/* EMAIL */}
-                <div className="space-y-1.5">
-                  <label htmlFor="email" className="text-base font-medium text-slate-700 dark:text-slate-300 ml-1">
-                    Email
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
-                    <input
-                      id="email"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      placeholder="name@company.com"
-                      value={form.email}
-                      onChange={handleChange('email')}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-base rounded-xl h-12 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                    />
-                  </div>
-                </div>
-
-                {/* PASSWORD */}
-                <div className="space-y-1.5">
-                  <label htmlFor="password" className="text-base font-medium text-slate-700 dark:text-slate-300 ml-1">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
-                    <input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      autoComplete="current-password"
-                      placeholder="••••••••••"
-                      value={form.password}
-                      onChange={handleChange('password')}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-base rounded-xl h-12 pl-11 pr-11 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-cyan-500 dark:hover:text-cyan-400 transition-colors p-1.5"
-                    >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pb-1">
-                  <label className="flex items-center gap-2 text-sm text-slate-605 dark:text-slate-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0 cursor-pointer"
-                    />
-                    Remember Me
-                  </label>
-                  <a href="#" onClick={(e) => e.preventDefault()} className="text-sm font-semibold text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors">
-                    Forgot Password?
-                  </a>
-                </div>
-
-                {/* SIGN IN BUTTON */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full h-12 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 active:scale-[0.98] text-base font-semibold text-white flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-70 disabled:pointer-events-none shadow-lg shadow-cyan-500/20"
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setError('Password reset instructions have been dispatched to administrators.');
+                  }}
+                  className="text-[11.5px] font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
                 >
-                  {loading ? (
-                    <>
-                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Signing in...
-                    </>
-                  ) : (
-                    <>
-                      Sign In <ArrowRight size={18} />
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {/* DIVIDER */}
-              <div className="flex items-center gap-3 my-5">
-                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap tracking-wider">
-                  OR SIGN IN WITH
-                </span>
-                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+                  Forgot password?
+                </a>
               </div>
 
-              {/* GOOGLE BUTTON */}
+              {/* Sign In Primary CTA Button */}
               <button
-                type="button"
-                onClick={handleGoogleLogin}
-                disabled={googleLoading || loading}
-                className="w-full h-12 rounded-xl border border-slate-350 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-sm font-medium text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-70 disabled:pointer-events-none shadow-sm"
+                type="submit"
+                id="login-submit-btn"
+                disabled={isSubmitting}
+                className="w-full h-10 sm:h-11 rounded-xl bg-sky-500 hover:bg-sky-400 dark:bg-sky-400 dark:hover:bg-sky-300 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-sky-500/15 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:pointer-events-none mt-1 cursor-pointer"
               >
-                {googleLoading ? (
+                {isSubmitting ? (
                   <>
-                    <svg className="animate-spin h-5 w-5 text-slate-550 dark:text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-4 w-4 text-slate-950" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Connecting...
+                    <span>Signing in...</span>
                   </>
                 ) : (
                   <>
-                    <GoogleIcon />
-                    Continue with Google
+                    <span>Sign In</span>
+                    <ArrowRight size={15} strokeWidth={2.5} />
                   </>
                 )}
               </button>
 
-              {/* FOOTER */}
-              <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 text-center">
-                <p className="text-sm text-slate-650 dark:text-slate-400 mb-2.5">
-                  Don&apos;t have an account?{' '}
-                  <Link to="/register" className="font-semibold text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors">
-                    Create New Account
-                  </Link>
-                </p>
-                
-                <div className="flex items-center justify-center">
-                  <button 
-                    type="button" 
-                    onClick={fillDemo} 
-                    className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-350 transition-colors"
-                  >
-                    <Sparkles size={12} />
-                    Auto-fill Demo
-                  </button>
-                </div>
-              </div>
+            </form>
 
+            {/* Divider */}
+            <div className="flex items-center gap-2.5 my-2.5 sm:my-3">
+              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+              <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 tracking-wider uppercase">
+                OR CONTINUE WITH
+              </span>
+              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
             </div>
-          </section>
 
-          {/* ======================================================================
-              RIGHT SECTION: BRANDING / VISUALS (60%)
-          ====================================================================== */}
-          <section className="relative z-10 hidden lg:flex h-full w-[60%] min-h-screen shrink-0 items-center justify-center px-8 xl:px-12 bg-slate-100/30 dark:bg-slate-900/10">
-            
-            <div 
-              className="flex h-full w-full max-w-6xl flex-col justify-center py-6 opacity-0"
-              style={{ animation: 'fadeInRight 0.7s ease-out 0.1s forwards' }}
+            {/* Google Login Button */}
+            <button
+              type="button"
+              id="google-login-btn"
+              onClick={handleGoogleRedirectLogin}
+              disabled={googleLoading || isSubmitting}
+              className="w-full h-10 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-semibold flex items-center justify-center gap-2.5 transition-all duration-200 shadow-sm active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
-              
-              {/* PLATFORM BADGE */}
-              <div className="mb-3">
-                <div className="inline-flex rounded-full border border-cyan-500/20 dark:border-cyan-400/20 bg-cyan-500/10 px-3.5 py-1.5 text-xs font-bold tracking-widest text-cyan-700 dark:text-cyan-300 uppercase">
-                  ● AI-Powered Wealth Advisory
-                </div>
-              </div>
-
-              {/* TITLE */}
-              <h1 className="mt-3 text-4xl font-extrabold leading-tight tracking-tight xl:text-5xl text-slate-900 dark:text-white">
-                Personalized
-                <br />
-                <span className="bg-gradient-to-r from-cyan-500 via-cyan-400 to-emerald-400 bg-clip-text text-transparent">
-                  Wealth Management
+              {googleLoading ? (
+                <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs">
+                  <svg className="animate-spin h-4 w-4 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Connecting to Google...
                 </span>
-              </h1>
+              ) : (
+                <>
+                  <GoogleIcon />
+                  <span>Continue with Google</span>
+                </>
+              )}
+            </button>
 
-              {/* TAGLINE */}
-              <p className="mt-2.5 max-w-xl text-base text-slate-650 dark:text-slate-400 leading-relaxed">
-                Plan smarter. Invest better. Achieve your financial goals. Track goals, visualize equity allocations, and review rebalancing alerts instantly.
+            {/* Card Footer: Registration Link & Demo Auto-Fill */}
+            <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800/80 flex flex-col items-center gap-1.5">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Don&apos;t have an account?{' '}
+                <Link 
+                  to="/register" 
+                  id="create-account-link"
+                  className="font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+                >
+                  Create account
+                </Link>
               </p>
 
-              {/* CHART CARD CONTAINER */}
-              <div className="relative mt-6 h-[230px] w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 shadow-xl backdrop-blur-xl xl:h-[260px]">
-                
-                <div className="p-6 h-full flex flex-col justify-between">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-0.5">
-                        Portfolio Performance
-                      </h3>
-                      <div className="flex items-baseline gap-3">
-                        <span className="text-2xl font-bold text-slate-900 dark:text-white">₹24,80,000</span>
-                        <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-450">+18.42%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* SVG Chart */}
-                  <div className="flex-1 w-full relative mt-3 mb-1">
-                    <svg viewBox="0 0 400 100" className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="chart-gradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.25" />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                        </linearGradient>
-                        <linearGradient id="line-gradient" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%" stopColor="#06b6d4" />
-                          <stop offset="100%" stopColor="#10b981" />
-                        </linearGradient>
-                      </defs>
-                      
-                      {/* Grid */}
-                      <g stroke="currentColor" strokeOpacity="0.08" className="text-slate-400 dark:text-slate-650" strokeWidth="1">
-                        <line x1="0" y1="20" x2="400" y2="20" />
-                        <line x1="0" y1="50" x2="400" y2="50" />
-                        <line x1="0" y1="80" x2="400" y2="80" />
-                      </g>
-                      
-                      {/* Area */}
-                      <path d="M0,80 C40,75 80,90 120,65 C160,40 200,60 240,45 C280,30 320,15 400,20 L400,100 L0,100 Z" fill="url(#chart-gradient)" />
-                      
-                      {/* Line */}
-                      <path d="M0,80 C40,75 80,90 120,65 C160,40 200,60 240,45 C280,30 320,15 400,20" fill="none" stroke="url(#line-gradient)" strokeWidth="2.5" className="drop-shadow-[0_0_6px_rgba(16,185,129,0.3)]" />
-                      
-                      {/* Dot */}
-                      <circle cx="400" cy="20" r="3" fill="#10b981" className="shadow-[0_0_8px_#10b981] animate-pulse" />
-                    </svg>
-                  </div>
-
-                  {/* FLOATING AI INSIGHT */}
-                  <div className="absolute right-6 bottom-6 flex flex-col bg-white/90 dark:bg-slate-950/80 border border-slate-205 dark:border-slate-800 rounded-xl py-2 px-3 z-20 backdrop-blur-md shadow-md animate-pulse">
-                    <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 mb-0.5 flex items-center gap-1">
-                      <Sparkles size={10} />
-                      AI Insight
-                    </span>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      Portfolio allocation aligned<br/>with your risk profile.
-                    </span>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* FEATURES GRID */}
-              <div className="mt-5 grid w-full max-w-4xl grid-cols-4 gap-3.5">
-                
-                <div 
-                  className="min-w-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 p-4 shadow-sm dark:shadow-none backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/30 dark:hover:border-cyan-400/20"
-                  style={{ animation: 'fadeInRight 0.7s ease-out 0.2s forwards', opacity: 0 }}
-                >
-                  <div className="text-xl mb-1">📈</div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Smart Goals</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2">
-                    Set milestones, save regularly, and track completion progress.
-                  </p>
-                </div>
-
-                <div 
-                  className="min-w-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 p-4 shadow-sm dark:shadow-none backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/30 dark:hover:border-cyan-400/20"
-                  style={{ animation: 'fadeInRight 0.7s ease-out 0.3s forwards', opacity: 0 }}
-                >
-                  <div className="text-xl mb-1">📊</div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Portfolio</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2">
-                    Calculate asset ratios and rebalance based on your risk profile.
-                  </p>
-                </div>
-
-                <div 
-                  className="min-w-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 p-4 shadow-sm dark:shadow-none backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/30 dark:hover:border-cyan-400/20"
-                  style={{ animation: 'fadeInRight 0.7s ease-out 0.4s forwards', opacity: 0 }}
-                >
-                  <div className="text-xl mb-1">◈</div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">AI Advisor</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2">
-                    Get rebalancing advice and asset breakdown alerts dynamically.
-                  </p>
-                </div>
-
-                <div 
-                  className="min-w-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 p-4 shadow-sm dark:shadow-none backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/30 dark:hover:border-cyan-400/20"
-                  style={{ animation: 'fadeInRight 0.7s ease-out 0.5s forwards', opacity: 0 }}
-                >
-                  <div className="text-xl mb-1">🛡️</div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">Secure Session</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400 line-clamp-2">
-                    Enjoy secure active token-refresh session management.
-                  </p>
-                </div>
-
-              </div>
-
+              <button
+                type="button"
+                id="autofill-demo-btn"
+                onClick={fillDemo}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors py-0.5 px-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer"
+              >
+                <Sparkles size={11} className="text-sky-500" />
+                <span>Auto-fill Demo Credentials</span>
+              </button>
             </div>
-          </section>
+
+          </div>
+
+          {/* ==================================================================
+              RIGHT CARD (DESKTOP) / SECOND (MOBILE): WEALTHTRACK PRO VISUAL CARD (~54% width on desktop)
+          ================================================================== */}
+          <div className="order-2 lg:order-2 lg:col-span-6 xl:col-span-7 flex">
+            <LoginVisualCard />
+          </div>
 
         </div>
-      </div>
-    </>
+
+        {/* Trust / Security Note */}
+        <div className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+          <ShieldCheck size={13} className="text-emerald-500/80 shrink-0" />
+          <span>Secure 256-bit encrypted authentication</span>
+        </div>
+
+      </main>
+
+      {/* Footer */}
+      <footer className="relative z-10 w-full shrink-0 border-t border-slate-200/60 dark:border-slate-800/60 px-4 py-1.5 text-center text-[11px] text-slate-500 dark:text-slate-400">
+        &copy; {new Date().getFullYear()} WealthTrack Pro. Bank-Grade Security.
+      </footer>
+
+    </div>
   );
 };

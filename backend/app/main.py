@@ -1,47 +1,85 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine, SessionLocal, Base
 from app.models.user import User, RiskProfileEnum, KYCStatusEnum
+from app.models.portfolio import Portfolio
+from app.models.transaction import Transaction, TransactionTypeEnum
 from app.models.notification import Notification
 from app.core.security import get_password_hash
+from app.services.market_service import normalize_symbol_for_yahoo
+from app.services.portfolio_calc import reconcile_all_user_holdings
+from app.services.notifications import NotificationService
 from app.api.v1 import auth, users, goals, portfolio, transactions, advisor, calculator, report, notifications
 from app.routers import market as market_router
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Create tables & seed demo user on startup
+# Database schema verification, auto-healing migration & seed
 # ---------------------------------------------------------------------------
-try:
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables verified / created.")
-    
-    # Auto-seed default test user (john@example.com / password123)
-    db = SessionLocal()
+def heal_database_records(db):
+    """Auto-heal legacy/corrupted symbols (.NA -> .NS, unnormalized tickers) safely and quickly."""
     try:
-        demo_email = "john@example.com"
-        existing = db.query(User).filter(User.email == demo_email).first()
-        if not existing:
-            demo_user = User(
-                name="John Doe",
-                email=demo_email,
-                password=get_password_hash("password123"),
-                risk_profile=RiskProfileEnum.moderate,
-                kyc_status=KYCStatusEnum.verified,
-            )
-            db.add(demo_user)
-            db.commit()
-            logger.info("Default demo user (john@example.com / password123) seeded successfully.")
-    except Exception as seed_exc:
-        logger.warning("Could not seed demo user: %s", seed_exc)
-    finally:
-        db.close()
+        db.execute(text("UPDATE portfolios SET symbol = REPLACE(symbol, '.NA', '.NS') WHERE symbol LIKE '%.NA'"))
+        db.execute(text("UPDATE transactions SET symbol = REPLACE(symbol, '.NA', '.NS') WHERE symbol LIKE '%.NA'"))
+        db.commit()
+        logger.info("Database auto-healing verification complete.")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Database auto-healing note: {e}")
 
-except Exception as exc:
-    logger.warning("Could not create DB tables on startup: %s", exc)
+
+def init_db_and_heal():
+    try:
+        Base.metadata.create_all(bind=engine)
+        with engine.connect() as conn:
+            for col_sql in [
+                "ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS normalized_symbol VARCHAR;",
+                "ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS manual_price DOUBLE PRECISION;",
+                "ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS price_source VARCHAR;",
+                "ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS last_price_update TIMESTAMP WITH TIME ZONE;",
+                "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+                "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
+                "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS entity_type VARCHAR;",
+                "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS entity_id INTEGER;",
+                "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS milestone DOUBLE PRECISION;",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_notification_key ON notifications (user_id, unique_key);",
+            ]:
+                try:
+                    conn.execute(text(col_sql))
+                    conn.commit()
+                except Exception:
+                    pass
+        logger.info("Database tables and columns verified / created.")
+        
+        # Auto-heal existing database records and seed default test user
+        db = SessionLocal()
+        try:
+            heal_database_records(db)
+            demo_email = "john@example.com"
+            existing = db.query(User).filter(User.email == demo_email).first()
+            if not existing:
+                demo_user = User(
+                    name="John Doe",
+                    email=demo_email,
+                    password=get_password_hash("password123"),
+                    risk_profile=RiskProfileEnum.moderate,
+                    kyc_status=KYCStatusEnum.verified,
+                )
+                db.add(demo_user)
+                db.commit()
+                logger.info("Default demo user (john@example.com / password123) seeded successfully.")
+        except Exception as seed_exc:
+            logger.warning("Could not seed demo user: %s", seed_exc)
+        finally:
+            db.close()
+
+    except Exception as exc:
+        logger.warning("Could not create DB tables on startup: %s", exc)
 
 # ---------------------------------------------------------------------------
 # Google OAuth Configuration Validation
@@ -59,6 +97,26 @@ if missing_google_vars:
 else:
     logger.info("Google OAuth configuration: READY")
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        import asyncio
+        from app.services.notifications import notification_stream_manager
+        loop = asyncio.get_running_loop()
+        notification_stream_manager.set_loop(loop)
+        logger.info("Notification stream manager initialized with main asyncio event loop.")
+    except Exception as e:
+        logger.warning(f"Could not register main event loop on startup: {e}")
+
+    try:
+        init_db_and_heal()
+    except Exception as e:
+        logger.warning(f"Could not run init_db_and_heal on startup: {e}")
+
+    yield
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -67,6 +125,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,9 @@ from app.models.goal import Goal
 from app.models.portfolio import Portfolio
 from app.models.transaction import Transaction
 from app.services.market_service import MarketService
+from app.api.v1.portfolio import enrich_portfolio_item
 from app.api.deps import get_current_user
+
 
 router = APIRouter(prefix="/report", tags=["Wealth Report"])
 
@@ -30,15 +32,15 @@ def get_wealth_report(
     user_info = {
         "name": current_user.name,
         "email": current_user.email,
-        "risk_profile": current_user.risk_profile.value if current_user.risk_profile else "moderate",
-        "kyc_status": current_user.kyc_status.value if current_user.kyc_status else "pending",
-        "member_since": current_user.created_at.strftime("%d %B %Y") if current_user.created_at else "N/A",
+        "risk_profile": (current_user.risk_profile or "moderate").capitalize() if isinstance(current_user.risk_profile, str) else getattr(current_user.risk_profile, "value", "Moderate").capitalize(),
+        "kyc_status": (current_user.kyc_status or "verified").capitalize() if isinstance(current_user.kyc_status, str) else getattr(current_user.kyc_status, "value", "Verified").capitalize(),
+        "created_at": current_user.created_at.strftime("%B %d, %Y") if current_user.created_at else "N/A",
     }
 
     # ── Portfolio Holdings ─────────────────────────────────────
     holdings = (
         db.query(Portfolio)
-        .filter(Portfolio.user_id == current_user.id)
+        .filter(Portfolio.user_id == current_user.id, Portfolio.quantity > 0)
         .all()
     )
 
@@ -48,31 +50,32 @@ def get_wealth_report(
     type_allocation: Dict[str, float] = {}
 
     for h in holdings:
-        quote = MarketService.get_quote(h.symbol)
-        current_price = float(quote.get("price", h.average_buy_price))
-        invested = h.quantity * h.average_buy_price
-        current_val = h.quantity * current_price
-        pnl = current_val - invested
-        pnl_pct = (pnl / invested * 100) if invested > 0 else 0.0
+        item = enrich_portfolio_item(h)
+        invested = item.total_investment_value or 0.0
+        current_val = item.current_value if item.current_value is not None else invested
+        pnl = item.profit_loss if item.profit_loss is not None else 0.0
+        pnl_pct = item.profit_loss_percentage if item.profit_loss_percentage is not None else 0.0
 
         total_invested += invested
         total_current_value += current_val
 
         # Allocation by type
-        at = h.asset_type or "Stock"
+        at = item.asset_type or "Stock"
         type_allocation[at] = type_allocation.get(at, 0.0) + current_val
 
         portfolio_data.append({
-            "symbol": h.symbol,
-            "asset_name": h.asset_name,
-            "asset_type": h.asset_type,
-            "quantity": h.quantity,
-            "average_buy_price": round(h.average_buy_price, 2),
-            "current_price": round(current_price, 2),
-            "invested_value": round(invested, 2),
-            "current_value": round(current_val, 2),
-            "profit_loss": round(pnl, 2),
-            "profit_loss_pct": round(pnl_pct, 2),
+            "symbol": item.symbol,
+            "asset_name": item.asset_name,
+            "asset_type": item.asset_type,
+            "quantity": item.quantity,
+            "average_buy_price": item.average_buy_price,
+            "current_price": item.current_price if item.current_price is not None else item.average_buy_price,
+            "price_source": item.price_source,
+            "price_status": item.price_status,
+            "invested_value": invested,
+            "current_value": current_val,
+            "profit_loss": pnl,
+            "profit_loss_pct": pnl_pct,
         })
 
     total_pnl = total_current_value - total_invested
@@ -131,6 +134,26 @@ def get_wealth_report(
             "pct": round(pct, 1),
         })
 
+    # ── AI Advisor & Rebalancing ──────────────────────────────
+    from app.api.v1.advisor import get_rebalancing_advice
+    advisor_data = get_rebalancing_advice(db=db, current_user=current_user)
+
+    # ── Notifications (Read-Only) ─────────────────────────────
+    from app.services.notifications import NotificationService
+    notifs = NotificationService.get_user_notifications(db=db, user=current_user)
+    notifs_data = [
+        {
+            "id": n.id,
+            "type": n.type,
+            "title": n.title,
+            "message": n.message,
+            "severity": n.severity,
+            "is_read": n.is_read,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notifs
+    ]
+
     # ── Market Summary ─────────────────────────────────────────
     market_overview = MarketService.get_market_overview()[:6]  # Top 6 only
 
@@ -143,8 +166,11 @@ def get_wealth_report(
         "total_profit_loss": round(total_pnl, 2),
         "total_profit_loss_pct": round((total_pnl / total_invested * 100) if total_invested > 0 else 0.0, 2),
         "portfolio": portfolio_data,
+        "advisor": advisor_data,
         "goals": goals_data,
+        "notifications": notifs_data,
         "allocation_summary": allocation_list,
         "recent_transactions": transactions_data,
         "market_summary": market_overview,
     }
+

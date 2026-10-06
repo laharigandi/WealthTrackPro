@@ -14,9 +14,9 @@ export const Button = ({
 
   const variants = {
     primary:
-      'bg-cyan-500 hover:bg-cyan-600 dark:bg-cyan-500 dark:hover:bg-cyan-400 text-white font-bold shadow-sm hover:-translate-y-0.5 focus:ring-cyan-500',
+      'bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white font-semibold shadow-lg hover:-translate-y-0.5 focus:ring-indigo-500 border-0',
     secondary:
-      'bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 focus:ring-cyan-500',
+      'bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 focus:ring-indigo-500',
     outline:
       'border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 hover:border-slate-400 dark:hover:border-slate-600 focus:ring-slate-500',
     emerald:

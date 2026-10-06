@@ -2,6 +2,49 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 // ============================================================================
+// CANONICAL TARGET ALLOCATIONS (MIRRORS BACKEND ADVISOR SERVICE)
+// ============================================================================
+export const TARGET_ALLOCATIONS = {
+  conservative: {
+    'Stock': 15.0,
+    'ETF': 10.0,
+    'Mutual Fund': 15.0,
+    'Bond': 45.0,
+    'Crypto': 0.0,
+    'Cash': 15.0,
+  },
+  moderate: {
+    'Stock': 40.0,
+    'ETF': 25.0,
+    'Mutual Fund': 0.0,
+    'Bond': 25.0,
+    'Crypto': 0.0,
+    'Cash': 10.0,
+  },
+  aggressive: {
+    'Stock': 55.0,
+    'ETF': 20.0,
+    'Mutual Fund': 10.0,
+    'Bond': 5.0,
+    'Crypto': 10.0,
+    'Cash': 0.0,
+  },
+};
+
+export const STANDARD_ASSET_CLASSES = ['Stock', 'ETF', 'Bond', 'Cash', 'Mutual Fund', 'Crypto'];
+export const DEVIATION_THRESHOLD = 5.0;
+
+// Asset Palette definition
+export const ASSET_PALETTE = {
+  'Stock': { bg: [224, 242, 254], text: [3, 105, 161], color: [56, 189, 248] },       // Sky Blue #38BDF8
+  'ETF': { bg: [243, 232, 255], text: [126, 34, 206], color: [168, 85, 247] },       // Purple #A855F7
+  'Bond': { bg: [254, 243, 199], text: [180, 83, 9], color: [245, 158, 11] },        // Amber #F59E0B
+  'Cash': { bg: [241, 245, 249], text: [51, 65, 85], color: [100, 116, 139] },       // Slate #64748B
+  'Mutual Fund': { bg: [238, 242, 255], text: [67, 56, 202], color: [99, 102, 241] }, // Indigo #6366F1
+  'Crypto': { bg: [253, 242, 248], text: [190, 24, 93], color: [236, 72, 153] },     // Pink #EC4899
+};
+
+// ============================================================================
 // DATA NORMALIZATION & FORMATTING HELPERS
 // ============================================================================
 
@@ -11,24 +54,40 @@ export function safeNumber(val) {
   return isNaN(num) || !isFinite(num) ? 0 : num;
 }
 
-export function formatINR(value) {
+export function formatINR(value, showSign = false) {
   const num = safeNumber(value);
+  const isNegative = num < 0;
+  const absNum = Math.abs(num);
   const formatted = new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(num);
-  // Standard PDF fonts do not support the ₹ character natively.
-  // Using 'Rs.' ensures cross-platform rendering safety.
+    maximumFractionDigits: 2,
+  }).format(absNum);
+
+  if (isNegative) {
+    return 'Rs. -' + formatted;
+  }
+  if (showSign && num > 0) {
+    return 'Rs. +' + formatted;
+  }
   return 'Rs. ' + formatted;
 }
 
-export function formatPercent(value, showSign = false) {
+export function formatPercent(value, showSign = false, decimals = 2) {
   const num = safeNumber(value);
-  const formatted = num.toFixed(2) + '%';
+  const formatted = num.toFixed(decimals) + '%';
   if (showSign && num > 0) {
     return '+' + formatted;
   }
   return formatted;
+}
+
+export function formatDrift(value) {
+  const num = safeNumber(value);
+  if (Math.abs(num) < 0.005) {
+    return '0.00 pp';
+  }
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toFixed(2)} pp`;
 }
 
 export function formatNumber(value) {
@@ -40,1246 +99,1497 @@ export function formatDate(dateVal) {
   if (!dateVal) return 'N/A';
   try {
     const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return String(dateVal);
+    if (isNaN(d.getTime())) return sanitizePDFText(String(dateVal));
     return d.toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'short',
-      year: 'numeric'
+      year: 'numeric',
     });
   } catch {
-    return String(dateVal);
+    return sanitizePDFText(String(dateVal));
   }
 }
 
-// ── User Profiling Getters ──────────────────────────────────────────────────
-export function getUserName(user) {
-  if (!user) return 'N/A';
-  return user.name || user.full_name || user.username || 'N/A';
+/**
+ * Sanitize text to ensure clean, corruption-free rendering in standard jsPDF fonts.
+ * Strips emoji surrogates, translates currency glyphs to Rs., removes non-ASCII control characters.
+ */
+export function sanitizePDFText(str) {
+  if (str === null || str === undefined) return '';
+  let s = String(str);
+
+  // Replace Rupee symbol ₹ (U+20B9) with 'Rs. '
+  s = s.replace(/\u20B9/g, 'Rs. ');
+
+  // Standardize typographical punctuation to standard ASCII
+  s = s.replace(/[\u2018\u2019]/g, "'")
+       .replace(/[\u201C\u201D]/g, '"')
+       .replace(/[\u2013\u2014]/g, '-')
+       .replace(/\u2026/g, '...')
+       .replace(/\u00A0/g, ' ');
+
+  // Strip all emojis, pictographs, variation selectors, and surrogate pairs
+  s = s.replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+       .replace(/[\u{2600}-\u{27BF}]/gu, '')
+       .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+       .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+       .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+       .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+       .replace(/[\u{200D}\u{200C}]/gu, '');
+
+  // Remove any remaining non-printable / control / non-Latin-1 characters
+  s = s.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ');
+
+  // Collapse multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s;
 }
 
-export function getUserEmail(user) {
-  if (!user) return 'N/A';
-  return user.email || 'N/A';
-}
-
-export function getUserKYCStatus(user) {
-  if (!user) return 'PENDING';
-  return (user.kyc_status || user.kycStatus || 'PENDING').toUpperCase();
-}
-
-export function getUserRiskProfile(user) {
-  if (!user) return 'MODERATE';
-  return (user.risk_profile || user.riskProfile || 'MODERATE').toUpperCase();
-}
-
-// ── Portfolio Holdings Getters ──────────────────────────────────────────────
-export function getPortfolioUnits(item) {
-  if (!item) return 'N/A';
-  const qty = item.quantity ?? item.units ?? item.units_held;
-  if (qty === undefined || qty === null) return 'N/A';
-  return String(qty);
-}
-
-export function getPortfolioBuyPrice(item) {
-  if (!item) return 0;
-  return safeNumber(item.buy_price ?? item.avg_buy_price ?? item.average_buy_price ?? 0);
-}
-
-export function getPortfolioCurrentPrice(item) {
-  if (!item) return 0;
-  return safeNumber(item.current_price ?? item.currentPrice ?? item.price ?? 0);
-}
-
-export function getPortfolioCurrentValue(item) {
-  if (!item) return 0;
-  const val = item.current_value ?? item.currentValue ?? item.total_value;
-  if (val !== undefined && val !== null) return safeNumber(val);
-  
-  const units = getPortfolioUnits(item);
-  if (units === 'N/A') return 0;
-  return safeNumber(units) * getPortfolioCurrentPrice(item);
-}
-
-export function getPortfolioPnLPct(item) {
-  if (!item) return 0;
-  const pnlPct = item.profit_loss_pct ?? item.pnl_pct ?? item.pnlPercent ?? item.profit_loss_percentage;
-  if (pnlPct !== undefined && pnlPct !== null) return safeNumber(pnlPct);
-
-  const buy = getPortfolioBuyPrice(item);
-  const curr = getPortfolioCurrentPrice(item);
-  if (buy > 0) {
-    return ((curr - buy) / buy) * 100;
-  }
-  return 0;
-}
-
-export function getPortfolioValue(portfolio) {
-  if (!Array.isArray(portfolio)) return 0;
-  return portfolio.reduce((acc, item) => acc + getPortfolioCurrentValue(item), 0);
-}
-
-// ── Financial Goals Getters ─────────────────────────────────────────────────
-export function getGoalTargetAmount(g) {
-  if (!g) return 0;
-  return safeNumber(g.target_amount ?? g.targetAmount ?? 0);
-}
-
-export function getGoalSavedAmount(g) {
-  if (!g) return 0;
-  return safeNumber(g.saved_amount ?? g.savedAmount ?? g.current_amount ?? g.currentAmount ?? 0);
-}
-
-export function getGoalProgress(g) {
-  const target = getGoalTargetAmount(g);
-  const saved = getGoalSavedAmount(g);
-  if (target <= 0) return 0;
-  return (saved / target) * 100;
+export function normalizeAssetType(rawType) {
+  if (!rawType) return 'Stock';
+  const t = String(rawType).trim().toLowerCase();
+  if (t === 'etf') return 'ETF';
+  if (t.includes('mutual') || t === 'mf' || t === 'mfs') return 'Mutual Fund';
+  if (t.includes('bond') || t.includes('debt') || t.includes('fixed deposit') || t === 'fd') return 'Bond';
+  if (t.includes('cash') || t.includes('liquid')) return 'Cash';
+  if (t.includes('crypto')) return 'Crypto';
+  return 'Stock';
 }
 
 // ============================================================================
-// SECTION HEADER HELPER
+// VECTOR DONUT CHART DRAWING HELPER
+// ============================================================================
+
+export function drawVectorDonutChart(doc, cx, cy, outerR, innerR, segments) {
+  let currentAngle = -Math.PI / 2; // Start at 12 o'clock
+
+  segments.forEach(seg => {
+    if (seg.pct <= 0.05) return;
+    const sweepAngle = (seg.pct / 100) * 2 * Math.PI;
+    const endAngle = currentAngle + sweepAngle;
+    const numSteps = Math.max(12, Math.ceil(sweepAngle * 36));
+    const stepAngle = sweepAngle / numSteps;
+
+    doc.setFillColor(seg.color[0], seg.color[1], seg.color[2]);
+    doc.setDrawColor(seg.color[0], seg.color[1], seg.color[2]);
+    doc.setLineWidth(0.15);
+
+    for (let i = 0; i < numSteps; i++) {
+      const t1 = currentAngle + i * stepAngle;
+      const t2 = currentAngle + (i + 1) * stepAngle;
+
+      const x1_in = cx + innerR * Math.cos(t1);
+      const y1_in = cy + innerR * Math.sin(t1);
+      const x1_out = cx + outerR * Math.cos(t1);
+      const y1_out = cy + outerR * Math.sin(t1);
+
+      const x2_in = cx + innerR * Math.cos(t2);
+      const y2_in = cy + innerR * Math.sin(t2);
+      const x2_out = cx + outerR * Math.cos(t2);
+      const y2_out = cy + outerR * Math.sin(t2);
+
+      doc.triangle(x1_in, y1_in, x1_out, y1_out, x2_out, y2_out, 'FD');
+      doc.triangle(x1_in, y1_in, x2_out, y2_out, x2_in, y2_in, 'FD');
+    }
+
+    currentAngle = endAngle;
+  });
+
+  // Draw inner circle border
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.2);
+  doc.circle(cx, cy, innerR, 'FD');
+
+  // Outer subtle boundary ring
+  doc.circle(cx, cy, outerR, 'S');
+}
+
+// ============================================================================
+// SINGLE SOURCE OF TRUTH: UNIFIED REPORT SNAPSHOT BUILDER
+// ============================================================================
+
+export function buildUnifiedReportSnapshot(input = {}) {
+  const rawUser = input.user || {};
+  const rawPortfolio = Array.isArray(input.portfolio) ? input.portfolio : (input.portfolio?.data || input.portfolio?.items || []);
+  const rawGoals = Array.isArray(input.goals) ? input.goals : (input.goals?.data || input.goals?.items || []);
+  const rawAlerts = Array.isArray(input.notifications) ? input.notifications : (Array.isArray(input.alerts) ? input.alerts : (input.alerts?.data || []));
+  const rawAdvisor = input.advisor || null;
+
+  // 1. User profile
+  const riskProfile = (rawUser.risk_profile || rawUser.riskProfile || 'moderate').toLowerCase();
+  const kycStatus = (rawUser.kyc_status || rawUser.kycStatus || 'verified').toUpperCase();
+  const investor = {
+    name: sanitizePDFText(rawUser.name || rawUser.full_name || rawUser.username || 'Investor'),
+    email: sanitizePDFText(rawUser.email || 'N/A'),
+    risk_profile: riskProfile.toUpperCase(),
+    kyc_status: kycStatus,
+    created_at: rawUser.created_at ? formatDate(rawUser.created_at) : 'N/A',
+  };
+
+  // 2. Portfolio holdings normalization
+  let totalInvested = 0;
+  let totalCurrentValue = 0;
+  const holdings = [];
+  const typeValueMap = {
+    'Stock': 0,
+    'ETF': 0,
+    'Bond': 0,
+    'Cash': 0,
+    'Mutual Fund': 0,
+    'Crypto': 0,
+  };
+
+  rawPortfolio.forEach(item => {
+    if (!item) return;
+    const qty = safeNumber(item.quantity ?? item.units ?? item.units_held ?? 0);
+    if (qty <= 0) return;
+
+    const avgBuy = safeNumber(item.average_buy_price ?? item.avg_buy_price ?? item.buy_price ?? 0);
+    const currPriceRaw = item.current_price ?? item.currentPrice ?? item.manual_price;
+    const currPrice = currPriceRaw !== null && currPriceRaw !== undefined ? safeNumber(currPriceRaw) : avgBuy;
+    
+    const investedVal = item.invested_value !== null && item.invested_value !== undefined 
+      ? safeNumber(item.invested_value) 
+      : (item.total_investment_value !== null && item.total_investment_value !== undefined 
+          ? safeNumber(item.total_investment_value) 
+          : qty * avgBuy);
+
+    const currentVal = item.current_value !== null && item.current_value !== undefined
+      ? safeNumber(item.current_value)
+      : (item.total_value !== null && item.total_value !== undefined
+          ? safeNumber(item.total_value)
+          : qty * currPrice);
+
+    const pnl = item.profit_loss !== null && item.profit_loss !== undefined
+      ? safeNumber(item.profit_loss)
+      : currentVal - investedVal;
+
+    const pnlPct = item.profit_loss_pct !== null && item.profit_loss_pct !== undefined
+      ? safeNumber(item.profit_loss_pct)
+      : (item.profit_loss_percentage !== null && item.profit_loss_percentage !== undefined
+          ? safeNumber(item.profit_loss_percentage)
+          : (investedVal > 0 ? (pnl / investedVal) * 100 : 0));
+
+    const assetType = normalizeAssetType(item.asset_type || item.category);
+
+    totalInvested += investedVal;
+    totalCurrentValue += currentVal;
+    typeValueMap[assetType] = (typeValueMap[assetType] || 0) + currentVal;
+
+    holdings.push({
+      symbol: sanitizePDFText(item.symbol || item.asset_name || 'N/A'),
+      asset_name: sanitizePDFText(item.asset_name || item.symbol || 'N/A'),
+      asset_type: assetType,
+      quantity: qty,
+      average_buy_price: avgBuy,
+      current_price: currPrice,
+      invested_value: investedVal,
+      current_value: currentVal,
+      profit_loss: pnl,
+      profit_loss_pct: pnlPct,
+      price_source: sanitizePDFText(item.price_source || 'LIVE'),
+      price_status: sanitizePDFText(item.price_status || 'Live'),
+    });
+  });
+
+  const totalPnL = totalCurrentValue - totalInvested;
+  const totalPnLPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
+
+  // 3. Asset Allocation Breakdown across standard classes
+  const targetMap = TARGET_ALLOCATIONS[riskProfile] || TARGET_ALLOCATIONS.moderate;
+  const allocation = STANDARD_ASSET_CLASSES.map(type => {
+    const val = typeValueMap[type] || 0;
+    const currentPct = totalCurrentValue > 0 ? (val / totalCurrentValue) * 100 : 0;
+    const targetPct = targetMap[type] !== undefined ? targetMap[type] : 0;
+    const diffPP = currentPct - targetPct;
+
+    let status = 'BALANCED';
+    if (diffPP >= DEVIATION_THRESHOLD) {
+      status = 'OVERWEIGHT';
+    } else if (diffPP <= -DEVIATION_THRESHOLD) {
+      status = 'UNDERWEIGHT';
+    }
+
+    return {
+      asset_type: type,
+      current_value: val,
+      current_pct: currentPct,
+      target_pct: targetPct,
+      difference_pp: diffPP,
+      status: status,
+    };
+  });
+
+  // 4. AI Rebalancing Diagnostic & Recommendation
+  const overweightItems = allocation.filter(a => a.status === 'OVERWEIGHT');
+  const underweightItems = allocation.filter(a => a.status === 'UNDERWEIGHT');
+  const needsRebalancing = rawAdvisor ? rawAdvisor.needs_rebalancing : (overweightItems.length > 0 || underweightItems.length > 0);
+
+  // Dynamic portfolio risk classification
+  let portfolioRisk = riskProfile;
+  const stockAlloc = allocation.find(a => a.asset_type === 'Stock')?.current_pct || 0;
+  const etfAlloc = allocation.find(a => a.asset_type === 'ETF')?.current_pct || 0;
+  const cryptoAlloc = allocation.find(a => a.asset_type === 'Crypto')?.current_pct || 0;
+  const bondAlloc = allocation.find(a => a.asset_type === 'Bond')?.current_pct || 0;
+  const cashAlloc = allocation.find(a => a.asset_type === 'Cash')?.current_pct || 0;
+  
+  const highRiskExposure = stockAlloc + cryptoAlloc + (etfAlloc * 0.8);
+  const lowRiskExposure = bondAlloc + cashAlloc;
+
+  if (highRiskExposure >= 65.0) {
+    portfolioRisk = 'aggressive';
+  } else if (lowRiskExposure >= 55.0) {
+    portfolioRisk = 'conservative';
+  } else {
+    portfolioRisk = 'moderate';
+  }
+
+  // Calculate dynamic shift amount
+  let totalOverweightExcess = 0;
+  overweightItems.forEach(item => {
+    totalOverweightExcess += (item.difference_pp / 100) * totalCurrentValue;
+  });
+
+  let recommendationText = '';
+  if (rawAdvisor && rawAdvisor.summary) {
+    recommendationText = sanitizePDFText(rawAdvisor.summary);
+  } else if (needsRebalancing) {
+    if (overweightItems.length > 0) {
+      const topOver = overweightItems[0];
+      const shiftAmt = (topOver.difference_pp / 100) * totalCurrentValue;
+      const underweightNames = underweightItems.map(u => u.asset_type).join(', ') || 'underweight asset classes';
+      recommendationText = `Your portfolio is currently overweight in ${topOver.asset_type} exposure (${topOver.current_pct.toFixed(2)}% vs ${topOver.target_pct.toFixed(2)}% target) for your ${riskProfile.toUpperCase()} risk benchmark. Consider shifting approx. ${formatINR(shiftAmt)} into ${underweightNames} to restore optimal balance.`;
+    } else {
+      recommendationText = `Your portfolio asset distribution deviates from your target ${riskProfile.toUpperCase()} benchmark. Consider reallocating capital to realign with optimal target weights.`;
+    }
+  } else {
+    recommendationText = `Your portfolio asset allocation is aligned with your ${riskProfile.toUpperCase()} risk benchmark. Continue with your scheduled systematic investment plan.`;
+  }
+
+  // 5. Goals normalization
+  let totalGoalTarget = 0;
+  let totalGoalSaved = 0;
+  const goals = [];
+
+  rawGoals.forEach(g => {
+    if (!g) return;
+    const targetAmt = safeNumber(g.target_amount ?? g.targetAmount ?? 0);
+    const savedAmt = safeNumber(g.current_amount ?? g.currentAmount ?? g.saved_amount ?? g.savedAmount ?? 0);
+    const progressPct = targetAmt > 0 ? Math.min(100, Math.max(0, (savedAmt / targetAmt) * 100)) : 0;
+    const remainingAmt = Math.max(0, targetAmt - savedAmt);
+    const monthlySIP = safeNumber(g.monthly_contribution ?? g.monthlyContribution ?? 0);
+
+    totalGoalTarget += targetAmt;
+    totalGoalSaved += savedAmt;
+
+    let goalStatus = 'ON TRACK';
+    if (progressPct >= 100) {
+      goalStatus = 'COMPLETED';
+    } else if (progressPct >= 50) {
+      goalStatus = 'MILESTONE REACHED';
+    } else if (remainingAmt > (targetAmt * 0.75)) {
+      goalStatus = 'NEEDS ATTENTION';
+    }
+
+    goals.push({
+      title: sanitizePDFText(g.title || g.name || 'Financial Goal'),
+      category: sanitizePDFText(g.category || 'Wealth Creation'),
+      target_amount: targetAmt,
+      current_amount: savedAmt,
+      remaining_amount: remainingAmt,
+      progress_pct: progressPct,
+      monthly_contribution: monthlySIP,
+      target_date: formatDate(g.target_date || g.targetDate),
+      status: goalStatus,
+    });
+  });
+
+  const overallGoalsProgress = totalGoalTarget > 0 ? (totalGoalSaved / totalGoalTarget) * 100 : 0;
+
+  // 6. Notifications / Activity normalization
+  const notifications = [];
+  rawAlerts.forEach(a => {
+    if (!a) return;
+    const title = sanitizePDFText(a.title || 'System Notification');
+    const message = sanitizePDFText(a.message || a.event || '');
+    const dateVal = a.created_at || a.timestamp || a.date;
+    const rawSev = (a.severity || 'info').toLowerCase();
+    
+    let severityStatus = 'INFO';
+    if (rawSev.includes('crit') || rawSev.includes('dang') || rawSev.includes('high')) {
+      severityStatus = 'CRITICAL';
+    } else if (rawSev.includes('warn') || rawSev.includes('amber')) {
+      severityStatus = 'WARNING';
+    } else if (rawSev.includes('succ') || rawSev.includes('green')) {
+      severityStatus = 'SUCCESS';
+    }
+
+    notifications.push({
+      title,
+      message,
+      status: severityStatus,
+      timestamp: dateVal ? formatDate(dateVal) : 'Recent',
+    });
+  });
+
+  // 7. Dynamic Smart Wealth Insights
+  const insights = [];
+  if (overweightItems.length > 0) {
+    overweightItems.forEach(item => {
+      insights.push(`Portfolio Drift: ${item.asset_type} is currently ${formatDrift(item.difference_pp)} above its ${riskProfile.toUpperCase()} target.`);
+    });
+  } else {
+    insights.push(`Asset Alignment: Your holdings are well-balanced within the standard ±5.0 pp drift band.`);
+  }
+
+  if (underweightItems.length > 0) {
+    underweightItems.slice(0, 2).forEach(item => {
+      insights.push(`Allocation Opportunity: ${item.asset_type} is ${formatDrift(item.difference_pp)} below benchmark; systematic SIPs can help restore allocation.`);
+    });
+  }
+
+  if (needsRebalancing) {
+    insights.push(`Rebalancing Advisory: Capital reallocation is recommended based on your configured benchmark.`);
+  }
+
+  if (goals.length > 0) {
+    const activeGoals = goals.filter(g => g.progress_pct < 100);
+    if (activeGoals.length > 0) {
+      activeGoals.sort((a, b) => b.progress_pct - a.progress_pct);
+      insights.push(`Goal Milestone: "${activeGoals[0].title}" has achieved ${formatPercent(activeGoals[0].progress_pct)} of its target milestone.`);
+    } else {
+      insights.push(`Goal Completion: All registered financial goals have reached 100% completion!`);
+    }
+  }
+
+  insights.push(`Holdings Diversification: Portfolio is actively distributed across ${holdings.length} position(s).`);
+
+  if (totalPnL >= 0) {
+    insights.push(`Net Performance: Portfolio has generated a cumulative net return of ${formatINR(totalPnL)} (${formatPercent(totalPnLPct, true)}).`);
+  } else {
+    insights.push(`Net Performance: Portfolio currently reflects an unrealized loss of ${formatINR(Math.abs(totalPnL))} (${formatPercent(totalPnLPct, true)}).`);
+  }
+
+  return {
+    investor,
+    summary: {
+      total_current_value: totalCurrentValue,
+      total_invested: totalInvested,
+      total_profit_loss: totalPnL,
+      total_profit_loss_pct: totalPnLPct,
+      overall_goals_progress: overallGoalsProgress,
+      total_goal_target: totalGoalTarget,
+      total_goal_saved: totalGoalSaved,
+    },
+    holdings,
+    allocation,
+    advisor: {
+      risk_profile: riskProfile.toUpperCase(),
+      portfolio_risk: portfolioRisk.toUpperCase(),
+      needs_rebalancing: needsRebalancing,
+      diagnostic_status: needsRebalancing ? 'REBALANCE RECOMMENDED' : 'WELL BALANCED',
+      recommendation: recommendationText,
+      rebalance_amount: totalOverweightExcess,
+    },
+    goals,
+    notifications,
+    insights,
+    generatedAt: new Date(),
+  };
+}
+
+// ============================================================================
+// PDF SECTION DRAWING HELPERS
 // ============================================================================
 
 export function drawSectionHeader(doc, title, y) {
-  // Slate Blue primary color: #0F172A
+  // Slate Dark primary color: #0F172A
   doc.setFillColor(15, 23, 42);
-  doc.rect(15, y, 2, 6, 'F');
-  
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.rect(14, y, 2.5, 5.5, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(title.toUpperCase(), 20, y + 4.5);
-  
+  doc.text(title.toUpperCase(), 19.5, y + 4.2);
+
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.2);
-  doc.line(15, y + 8, doc.internal.pageSize.getWidth() - 15, y + 8);
-  
-  return y + 13; // spacing after header
+  doc.line(14, y + 7.5, doc.internal.pageSize.getWidth() - 14, y + 7.5);
+
+  return y + 11.5;
 }
 
 // ============================================================================
-// EXPORT MAIN FUNCTION
+// MAIN EXPORT FUNCTION
 // ============================================================================
 
-export function exportWealthSummaryPDF({
-  user = {},
-  netWorth = 0,
-  portfolio = [],
-  goals = [],
-  alerts = []
-} = {}) {
+export function exportWealthSummaryPDF(inputData = {}) {
   const renderTable = typeof autoTable === 'function' ? autoTable : (autoTable && autoTable.default);
   if (!renderTable) {
-    throw new Error("jsPDF AutoTable plugin is not loaded correctly");
+    throw new Error('jsPDF AutoTable plugin is not loaded correctly');
   }
 
+  // 1. Build canonical snapshot
+  const data = buildUnifiedReportSnapshot(inputData);
+
   const doc = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4"
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
   });
 
   const width = doc.internal.pageSize.getWidth();
   const height = doc.internal.pageSize.getHeight();
-
-  // Normalize API data shapes
-  let normalizedPortfolio = [];
-  if (Array.isArray(portfolio)) {
-    normalizedPortfolio = portfolio;
-  } else if (portfolio && Array.isArray(portfolio.data)) {
-    normalizedPortfolio = portfolio.data;
-  } else if (portfolio && Array.isArray(portfolio.items)) {
-    normalizedPortfolio = portfolio.items;
-  }
-
-  let normalizedGoals = [];
-  if (Array.isArray(goals)) {
-    normalizedGoals = goals;
-  } else if (goals && Array.isArray(goals.data)) {
-    normalizedGoals = goals.data;
-  } else if (goals && Array.isArray(goals.items)) {
-    normalizedGoals = goals.items;
-  }
-
-  let normalizedAlerts = [];
-  if (Array.isArray(alerts)) {
-    normalizedAlerts = alerts;
-  } else if (alerts && Array.isArray(alerts.data)) {
-    normalizedAlerts = alerts.data;
-  } else if (alerts && Array.isArray(alerts.items)) {
-    normalizedAlerts = alerts.items;
-  }
+  const marginX = 14;
+  const contentWidth = width - (marginX * 2);
 
   // ============================================================================
-  // PAGE 1 — EXECUTIVE SUMMARY & BRANDING
+  // PAGE 1 — EXECUTIVE OVERVIEW & ASSET ALLOCATION STRATEGY
   // ============================================================================
-  
-  // ── BRAND HEADER ──
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(15, 23, 42); // Primary Dark #0F172A
-  doc.text("WEALTHTRACK PRO", 15, 22);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(100, 116, 139); // Muted Slate #64748B
-  doc.text("Personal Wealth Intelligence Platform", 15, 26.5);
+  // ── BRAND HEADER BANNER ──
+  const headerY = 12;
+  const headerH = 26;
+  doc.setFillColor(15, 23, 42); // Primary Dark #0F172A
+  doc.roundedRect(marginX, headerY, contentWidth, headerH, 2, 2, 'F');
+  doc.setDrawColor(30, 41, 59);
+  doc.roundedRect(marginX, headerY, contentWidth, headerH, 2, 2, 'S');
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text("Comprehensive Wealth & Investment Report", 15, 33);
+  // Top Accent Stripe
+  doc.setFillColor(56, 189, 248); // Sky Blue #38BDF8
+  doc.rect(marginX + 2, headerY, contentWidth - 4, 1.2, 'F');
 
-  // Thin line divider
-  doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(0.4);
-  doc.line(15, 36, width - 15, 36);
+  // Left Brand Title
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text('WEALTHTRACK PRO', marginX + 6, headerY + 11);
 
-  // Metadata block
-  const now = new Date();
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184); // Slate 400
+  doc.text('Personal Wealth Intelligence Platform', marginX + 6, headerY + 16.5);
+
+  // Right Document Title & Metadata
+  const now = data.generatedAt;
   const formattedDateTime = now.toLocaleDateString('en-US', {
-    month: 'long',
+    month: 'short',
     day: 'numeric',
-    year: 'numeric'
+    year: 'numeric',
   }) + ' · ' + now.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: true
+    hour12: true,
   });
 
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(148, 163, 184); // Muted
-  doc.text("GENERATED ON:", 15, 41);
-  doc.text("REPORTING PERIOD:", 68, 41);
-  doc.text("CURRENCY:", 122, 41);
-  doc.text("SECURITY CLASSIFICATION:", 160, 41);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(56, 189, 248); // Sky Blue
+  doc.text('WEALTH & INVESTMENT SUMMARY', width - marginX - 6, headerY + 9.5, { align: 'right' });
 
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(51, 65, 85); // Slate Text
-  doc.text(formattedDateTime, 15, 45);
-  doc.text("Real-Time Snapshot", 68, 45);
-  doc.text("INR (Rs.)", 122, 45);
-  
-  doc.setTextColor(217, 119, 6); // Amber
-  doc.setFont("helvetica", "bold");
-  doc.text("CONFIDENTIAL", 160, 45);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Generated: ${formattedDateTime}`, width - marginX - 6, headerY + 15, { align: 'right' });
 
-  let currentY = 51;
+  // Confidential badge
+  const confText = 'CONFIDENTIAL';
+  const confW = doc.getTextWidth(confText) + 6;
+  const confX = width - marginX - 6 - confW;
+  const confY = headerY + 18;
+  doc.setFillColor(245, 158, 11); // Amber
+  doc.roundedRect(confX, confY, confW, 4.5, 0.8, 0.8, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(confText, confX + 3, confY + 3.2);
 
-  // ── PROFILE CARD ──
-  const profileCardW = width - 30;
-  const profileCardH = 22;
+  let currentY = headerY + headerH + 4.5;
+
+  // ── INVESTOR PROFILE CARD ──
+  const profileCardH = 16.5;
   const profileCardY = currentY;
 
-  doc.setFillColor(248, 250, 252); // #f8fafc
-  doc.roundedRect(15, profileCardY, profileCardW, profileCardH, 2, 2, 'F');
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(marginX, profileCardY, contentWidth, profileCardH, 1.5, 1.5, 'F');
   doc.setDrawColor(226, 232, 240);
-  doc.rect(15, profileCardY, profileCardW, profileCardH, 'S');
-  
-  doc.setFillColor(8, 145, 178); // Cyan Accent left line
-  doc.rect(15, profileCardY + 2, 1.5, profileCardH - 4, 'F');
+  doc.roundedRect(marginX, profileCardY, contentWidth, profileCardH, 1.5, 1.5, 'S');
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text("INVESTOR PROFILE", 20, profileCardY + 6);
+  doc.setFillColor(56, 189, 248); // Sky Blue left accent
+  doc.rect(marginX, profileCardY + 2, 1.5, profileCardH - 4, 'F');
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
+  // Col 1: Investor Name & Email
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
   doc.setTextColor(100, 116, 139);
-  doc.text("NAME:", 20, profileCardY + 13);
-  doc.text("EMAIL:", 20, profileCardY + 18);
-
-  doc.text("KYC STATUS:", 110, profileCardY + 13);
-  doc.text("RISK PROFILE:", 110, profileCardY + 18);
-
-  doc.setFont("helvetica", "normal");
+  doc.text('INVESTOR', marginX + 6, profileCardY + 5.5);
+  doc.setFontSize(9);
   doc.setTextColor(15, 23, 42);
   const limitStr = (str, len) => {
     const s = String(str || '');
     return s.length > len ? s.substring(0, len - 3) + '...' : s;
   };
-  doc.text(limitStr(getUserName(user), 35), 45, profileCardY + 13);
-  doc.text(limitStr(getUserEmail(user), 35), 45, profileCardY + 18);
-
-  // KYC Badge logic
-  const kycStatusVal = getUserKYCStatus(user);
-  if (kycStatusVal === 'VERIFIED') {
-    doc.setTextColor(5, 150, 105); // emerald
-  } else {
-    doc.setTextColor(217, 119, 6); // amber
-  }
-  doc.setFont("helvetica", "bold");
-  doc.text(kycStatusVal, 135, profileCardY + 13);
-
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(15, 23, 42);
-  doc.text(getUserRiskProfile(user), 135, profileCardY + 18);
-
-  currentY = profileCardY + profileCardH + 6;
-
-  // ── NET WORTH EXECUTIVE DASHBOARD ──
-  currentY = drawSectionHeader(doc, "Executive Summary", currentY);
-
-  const cardW = 86;
-  const cardH = 26;
-  const row1Y = currentY;
-
-  // Compile calculations
-  let portfolioVal = getPortfolioValue(normalizedPortfolio);
-  let totalBuyVal = 0;
-  normalizedPortfolio.forEach(item => {
-    const units = getPortfolioUnits(item);
-    const buyPrice = getPortfolioBuyPrice(item);
-    if (units !== 'N/A') {
-      totalBuyVal += safeNumber(units) * buyPrice;
-    }
-  });
-
-  const overallPnLVal = portfolioVal - totalBuyVal;
-  const overallPnLPct = totalBuyVal > 0 ? (overallPnLVal / totalBuyVal) * 100 : 0;
-
-  // Calculate goal targets
-  let totalSaved = 0;
-  let totalTarget = 0;
-  normalizedGoals.forEach(g => {
-    totalSaved += getGoalSavedAmount(g);
-    totalTarget += getGoalTargetAmount(g);
-  });
-  const overallProgress = totalTarget > 0 ? (totalSaved / totalTarget) * 100 : 0;
-  const clampedProgress = Math.min(100, Math.max(0, overallProgress));
-
-  // CARD 1: TOTAL PORTFOLIO VALUE (Cyan)
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(15, row1Y, cardW, cardH, 2, 2, 'F');
-  doc.rect(15, row1Y, cardW, cardH, 'S');
-  doc.setFillColor(8, 145, 178); // Cyan Accent left line
-  doc.rect(15, row1Y + 2, 1.5, cardH - 4, 'F');
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
-  doc.text("TOTAL PORTFOLIO VALUE", 20, row1Y + 6);
-  
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatINR(portfolioVal), 20, row1Y + 16);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text("Current Market Value of Assets", 20, row1Y + 22);
-
-  // CARD 2: TOTAL INVESTED (Slate)
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(109, row1Y, cardW, cardH, 2, 2, 'F');
-  doc.rect(109, row1Y, cardW, cardH, 'S');
-  doc.setFillColor(71, 85, 105); // Slate Accent left line
-  doc.rect(109, row1Y + 2, 1.5, cardH - 4, 'F');
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
-  doc.text("TOTAL INVESTED", 114, row1Y + 6);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatINR(totalBuyVal), 114, row1Y + 16);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text("Cumulative Acquisition Cost", 114, row1Y + 22);
-
-  // ROW 2:
-  const row2Y = row1Y + cardH + 6;
-
-  // CARD 3: TOTAL PROFIT / LOSS (Green/Red)
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(15, row2Y, cardW, cardH, 2, 2, 'F');
-  doc.rect(15, row2Y, cardW, cardH, 'S');
-  
-  const pnlColor = overallPnLVal >= 0 ? [5, 150, 105] : [220, 38, 38];
-  doc.setFillColor(pnlColor[0], pnlColor[1], pnlColor[2]);
-  doc.rect(15, row2Y + 2, 1.5, cardH - 4, 'F');
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
-  doc.text("TOTAL NET RETURNS", 20, row2Y + 6);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(pnlColor[0], pnlColor[1], pnlColor[2]);
-  doc.text(`${overallPnLVal >= 0 ? '+' : ''}${formatINR(overallPnLVal)}`, 20, row2Y + 16);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
-  doc.text(formatPercent(overallPnLPct, true), 20, row2Y + 22);
-
-  // CARD 4: GOAL PROGRESS
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(109, row2Y, cardW, cardH, 2, 2, 'F');
-  doc.rect(109, row2Y, cardW, cardH, 'S');
-  doc.setFillColor(8, 145, 178); // Cyan Accent left line
-  doc.rect(109, row2Y + 2, 1.5, cardH - 4, 'F');
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
-  doc.text("FINANCIAL GOALS PROGRESS", 114, row2Y + 6);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(8, 145, 178); // Cyan
-  doc.text(formatPercent(overallProgress), 114, row2Y + 16);
-
-  // Progress Bar background track
-  const barProgressW = 50;
-  const barProgressH = 2;
-  doc.setFillColor(226, 232, 240);
-  doc.rect(114, row2Y + 20, barProgressW, barProgressH, 'F');
-
-  // Filled progress bar
-  const filledProgressW = (clampedProgress / 100) * barProgressW;
-  if (filledProgressW > 0) {
-    doc.setFillColor(8, 145, 178);
-    doc.rect(114, row2Y + 20, filledProgressW, barProgressH, 'F');
-  }
-
-  doc.setFont("helvetica", "normal");
+  doc.text(limitStr(data.investor.name, 26), marginX + 6, profileCardY + 10.5);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(limitStr(data.investor.email, 30), marginX + 6, profileCardY + 14.5);
+
+  // Col 2: Risk Profile
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('RISK PROFILE', marginX + 64, profileCardY + 5.5);
+  
+  // Risk Badge
+  const riskText = data.investor.risk_profile;
+  const riskBadgeW = doc.getTextWidth(riskText) + 8;
+  doc.setFillColor(224, 242, 254);
+  doc.roundedRect(marginX + 64, profileCardY + 7.5, riskBadgeW, 5.5, 1, 1, 'F');
+  doc.setTextColor(3, 105, 161);
+  doc.setFontSize(7);
+  doc.text(riskText, marginX + 68, profileCardY + 11.5);
+
+  // Col 3: KYC Status
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('KYC STATUS', marginX + 112, profileCardY + 5.5);
+
+  const kycText = data.investor.kyc_status;
+  const kycBadgeW = doc.getTextWidth(kycText) + 8;
+  const kycBg = kycText === 'VERIFIED' ? [209, 250, 229] : [254, 243, 199];
+  const kycTextColor = kycText === 'VERIFIED' ? [6, 95, 70] : [180, 83, 9];
+  doc.setFillColor(kycBg[0], kycBg[1], kycBg[2]);
+  doc.roundedRect(marginX + 112, profileCardY + 7.5, kycBadgeW, 5.5, 1, 1, 'F');
+  doc.setTextColor(kycTextColor[0], kycTextColor[1], kycTextColor[2]);
+  doc.setFontSize(7);
+  doc.text(kycText, marginX + 116, profileCardY + 11.5);
+
+  // Col 4: Report Currency & Basis
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('VALUATION BASIS', marginX + 150, profileCardY + 5.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('INR (Rs.) · Live Market', marginX + 150, profileCardY + 11);
+
+  currentY = profileCardY + profileCardH + 4.5;
+
+  // ── EXECUTIVE SUMMARY METRICS (4 CARDS GRID) ──
+  currentY = drawSectionHeader(doc, 'Executive Summary', currentY);
+
+  const cardW = (contentWidth - 9) / 4; // 4 equal cards
+  const cardH = 21.5;
+  const cardRowY = currentY;
+
+  // CARD 1: PORTFOLIO VALUE
+  const c1X = marginX;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(c1X, cardRowY, cardW, cardH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(c1X, cardRowY, cardW, cardH, 1.5, 1.5, 'S');
+  doc.setFillColor(56, 189, 248); // Top Accent Sky Blue
+  doc.rect(c1X, cardRowY, cardW, 1.2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(100, 116, 139);
+  doc.text('PORTFOLIO VALUE', c1X + 3.5, cardRowY + 5.5);
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatINR(data.summary.total_current_value), c1X + 3.5, cardRowY + 12.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
   doc.setTextColor(148, 163, 184);
-  doc.text(`${clampedProgress.toFixed(0)}% Achieved`, 167, row2Y + 22);
+  doc.text('Current market valuation', c1X + 3.5, cardRowY + 17.5);
 
-  currentY = row2Y + cardH + 8;
+  // CARD 2: INVESTED CAPITAL
+  const c2X = c1X + cardW + 3;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(c2X, cardRowY, cardW, cardH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(c2X, cardRowY, cardW, cardH, 1.5, 1.5, 'S');
+  doc.setFillColor(100, 116, 139); // Top Accent Slate
+  doc.rect(c2X, cardRowY, cardW, 1.2, 'F');
 
-  // ── PORTFOLIO ALLOCATION ──
-  currentY = drawSectionHeader(doc, "Portfolio Asset Allocation", currentY);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(100, 116, 139);
+  doc.text('INVESTED CAPITAL', c2X + 3.5, cardRowY + 5.5);
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatINR(data.summary.total_invested), c2X + 3.5, cardRowY + 12.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Principal acquisition cost', c2X + 3.5, cardRowY + 17.5);
 
-  // Calculate current allocation dynamically from holdings
-  let equityValue = 0;
-  let debtValue = 0;
-  let cashValue = 0;
+  // CARD 3: PROFIT / LOSS
+  const c3X = c2X + cardW + 3;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(c3X, cardRowY, cardW, cardH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(c3X, cardRowY, cardW, cardH, 1.5, 1.5, 'S');
+  
+  const pnlColor = data.summary.total_profit_loss >= 0 ? [5, 150, 105] : [220, 38, 38];
+  doc.setFillColor(pnlColor[0], pnlColor[1], pnlColor[2]);
+  doc.rect(c3X, cardRowY, cardW, 1.2, 'F');
 
-  normalizedPortfolio.forEach(item => {
-    const cat = (item.asset_type || item.category || '').toLowerCase();
-    const name = (item.asset_name || item.symbol || '').toLowerCase();
-    const val = getPortfolioCurrentValue(item);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(100, 116, 139);
+  doc.text('PROFIT / LOSS (P&L)', c3X + 3.5, cardRowY + 5.5);
+  doc.setFontSize(10);
+  doc.setTextColor(pnlColor[0], pnlColor[1], pnlColor[2]);
+  doc.text(formatINR(data.summary.total_profit_loss, true), c3X + 3.5, cardRowY + 12.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.text(`Return: ${formatPercent(data.summary.total_profit_loss_pct, true)}`, c3X + 3.5, cardRowY + 17.5);
 
-    if (cat.includes('cash') || cat.includes('liquid') || name.includes('cash') || name.includes('liquid')) {
-      cashValue += val;
-    } else if (cat.includes('bond') || cat.includes('debt') || cat.includes('fd') || cat.includes('fixed deposit') || name.includes('bond') || name.includes('fd') || name.includes('fixed deposit')) {
-      debtValue += val;
-    } else {
-      equityValue += val;
-    }
+  // CARD 4: FINANCIAL GOALS PROGRESS
+  const c4X = c3X + cardW + 3;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(c4X, cardRowY, cardW, cardH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(c4X, cardRowY, cardW, cardH, 1.5, 1.5, 'S');
+  doc.setFillColor(16, 185, 129); // Top Accent Emerald
+  doc.rect(c4X, cardRowY, cardW, 1.2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(100, 116, 139);
+  doc.text('GOALS PROGRESS', c4X + 3.5, cardRowY + 5.5);
+  doc.setFontSize(10.5);
+  doc.setTextColor(16, 185, 129);
+  doc.text(formatPercent(data.summary.overall_goals_progress), c4X + 3.5, cardRowY + 12.5);
+
+  // Progress bar in card 4
+  const miniBarW = cardW - 7;
+  doc.setFillColor(226, 232, 240);
+  doc.rect(c4X + 3.5, cardRowY + 15.5, miniBarW, 1.5, 'F');
+  const miniClamped = Math.min(100, Math.max(0, data.summary.overall_goals_progress));
+  if (miniClamped > 0) {
+    doc.setFillColor(16, 185, 129);
+    doc.rect(c4X + 3.5, cardRowY + 15.5, (miniClamped / 100) * miniBarW, 1.5, 'F');
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`${data.goals.length} Active Goal(s)`, c4X + 3.5, cardRowY + 19.5);
+
+  currentY = cardRowY + cardH + 4.5;
+
+  // ── PORTFOLIO ASSET ALLOCATION (DONUT + TABLE) ──
+  currentY = drawSectionHeader(doc, 'Portfolio Asset Allocation & Benchmark Drift', currentY);
+
+  const allocSectionY = currentY;
+  const allocTableW = 114;
+  const donutCardW = contentWidth - allocTableW - 4; // ~64mm
+
+  // 1. Vector Donut Chart on Left Card
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(marginX, allocSectionY, donutCardW, 45, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, allocSectionY, donutCardW, 45, 1.5, 1.5, 'S');
+
+  // Chart Title
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('CURRENT ASSET MIX', marginX + 4, allocSectionY + 5.5);
+
+  // Segments for donut chart
+  const donutSegments = data.allocation.map(a => ({
+    pct: a.current_pct,
+    color: ASSET_PALETTE[a.asset_type]?.color || [100, 116, 139],
+    label: a.asset_type,
+  }));
+
+  const donutCenterX = marginX + 22;
+  const donutCenterY = allocSectionY + 24;
+  drawVectorDonutChart(doc, donutCenterX, donutCenterY, 14.5, 8.5, donutSegments);
+
+  // Center Total Value in Donut
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatINR(data.summary.total_current_value), donutCenterX, donutCenterY - 0.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('100% ASSETS', donutCenterX, donutCenterY + 3.2, { align: 'center' });
+
+  // Legend List beside Donut
+  const legStartX = marginX + 39;
+  const legStartY = allocSectionY + 9;
+  data.allocation.forEach((a, idx) => {
+    const ly = legStartY + (idx * 5.6);
+    const pal = ASSET_PALETTE[a.asset_type] || { color: [100, 116, 139] };
+    doc.setFillColor(pal.color[0], pal.color[1], pal.color[2]);
+    doc.roundedRect(legStartX, ly, 2.5, 2.5, 0.5, 0.5, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(a.asset_type, legStartX + 4, ly + 2);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(formatPercent(a.current_pct), legStartX + 22, ly + 2, { align: 'right' });
   });
 
-  const totalAllocValue = equityValue + debtValue + cashValue;
-  const currentEquityPct = totalAllocValue > 0 ? (equityValue / totalAllocValue) * 100 : 0;
-  const currentDebtPct = totalAllocValue > 0 ? (debtValue / totalAllocValue) * 100 : 0;
-  const currentCashPct = totalAllocValue > 0 ? (cashValue / totalAllocValue) * 100 : 0;
-
-  // Set recommended targets based on risk profile
-  const riskProfile = getUserRiskProfile(user);
-  let targetEquity = 50;
-  let targetDebt = 40;
-  let targetCash = 10;
-
-  if (riskProfile === 'CONSERVATIVE') {
-    targetEquity = 20;
-    targetDebt = 70;
-    targetCash = 10;
-  } else if (riskProfile === 'AGGRESSIVE') {
-    targetEquity = 80;
-    targetDebt = 15;
-    targetCash = 5;
-  }
-
-  // Draw Asset Allocation comparison table (width = 95mm)
-  const allocationRows = [
-    { asset: 'Equity', current: formatPercent(currentEquityPct), target: formatPercent(targetEquity) },
-    { asset: 'Debt / Fixed Income', current: formatPercent(currentDebtPct), target: formatPercent(targetDebt) },
-    { asset: 'Cash & Liquid', current: formatPercent(currentCashPct), target: formatPercent(targetCash) }
-  ];
+  // 2. 6-Class Allocation Table on Right
+  const allocTableX = marginX + donutCardW + 4;
+  const allocTableRows = data.allocation.map(a => ({
+    asset: a.asset_type,
+    value: formatINR(a.current_value),
+    current: formatPercent(a.current_pct),
+    target: formatPercent(a.target_pct),
+    drift: formatDrift(a.difference_pp),
+    status: a.status,
+  }));
 
   renderTable(doc, {
-    startY: currentY,
-    margin: { left: 15 },
-    tableWidth: 95,
+    startY: allocSectionY,
+    margin: { left: allocTableX },
+    tableWidth: allocTableW,
     columns: [
-      { header: "Asset Class", dataKey: "asset" },
-      { header: "Current", dataKey: "current" },
-      { header: "Target Allocation", dataKey: "target" }
+      { header: 'Asset Class', dataKey: 'asset' },
+      { header: 'Value', dataKey: 'value' },
+      { header: 'Actual', dataKey: 'current' },
+      { header: 'Target', dataKey: 'target' },
+      { header: 'Drift', dataKey: 'drift' },
+      { header: 'Status', dataKey: 'status' },
     ],
-    body: allocationRows,
+    body: allocTableRows,
     theme: 'plain',
     styles: {
       textColor: [30, 41, 59],
-      fontSize: 8,
-      cellPadding: 3.5,
+      fontSize: 6.5,
+      cellPadding: 1.8,
       lineColor: [226, 232, 240],
-      lineWidth: 0.1
+      lineWidth: 0.1,
     },
     headStyles: {
-      fillColor: [30, 41, 59],
+      fillColor: [15, 23, 42],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8
+      fontSize: 6.5,
     },
     bodyStyles: {
-      fillColor: [255, 255, 255]
+      fillColor: [255, 255, 255],
     },
     alternateRowStyles: {
-      fillColor: [248, 250, 252]
-    }
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      value: { halign: 'right' },
+      current: { halign: 'right' },
+      target: { halign: 'right' },
+      drift: { halign: 'right', fontStyle: 'bold' },
+      status: { halign: 'center' },
+    },
+    willDrawCell: (cellData) => {
+      if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+        cellData.cell.rawText = cellData.cell.text[0];
+        cellData.cell.text = [''];
+      }
+    },
+    didDrawCell: (cellData) => {
+      if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+        const cell = cellData.cell;
+        const rawText = cell.rawText || '';
+        const x = cell.x + 1;
+        const y = cell.y + 0.8;
+        const w = cell.width - 2;
+        const h = cell.height - 1.6;
+
+        let bg = [241, 245, 249];
+        let text = [71, 85, 105];
+
+        if (rawText === 'OVERWEIGHT') {
+          bg = [254, 243, 199];
+          text = [180, 83, 9];
+        } else if (rawText === 'UNDERWEIGHT') {
+          bg = [224, 242, 254];
+          text = [3, 105, 161];
+        } else if (rawText === 'BALANCED') {
+          bg = [209, 250, 229];
+          text = [6, 95, 70];
+        }
+
+        doc.setFillColor(bg[0], bg[1], bg[2]);
+        doc.roundedRect(x, y, w, h, 0.8, 0.8, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5);
+        doc.setTextColor(text[0], text[1], text[2]);
+
+        const textWidth = doc.getTextWidth(rawText);
+        const textX = x + (w - textWidth) / 2;
+        const textY = y + (h / 2) + 1.5;
+        doc.text(rawText, textX, textY);
+      }
+    },
   });
 
-  // Draw stacked bar comparison on the right side
-  const drawX = 120;
-  const drawY = currentY;
-  const barW = 70; // 70mm width
-  const barH = 4;
+  currentY = Math.max(doc.lastAutoTable.finalY, allocSectionY + 45) + 4.5;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(30, 41, 59);
-  doc.text("Visual Comparison", drawX, drawY + 4);
+  // ── AI SMART REBALANCING SECTION ──
+  currentY = drawSectionHeader(doc, 'AI Rebalancing Analysis & Recommendation', currentY);
 
-  // Current Bar
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text("Current Allocation", drawX, drawY + 12);
-
-  let currentX = drawX;
-  const eqW = (currentEquityPct / 100) * barW;
-  const dtW = (currentDebtPct / 100) * barW;
-  const csW = (currentCashPct / 100) * barW;
-
-  if (eqW > 0) {
-    doc.setFillColor(8, 145, 178); // Cyan
-    doc.rect(currentX, drawY + 14, eqW, barH, 'F');
-    currentX += eqW;
-  }
-  if (dtW > 0) {
-    doc.setFillColor(217, 119, 6); // Amber
-    doc.rect(currentX, drawY + 14, dtW, barH, 'F');
-    currentX += dtW;
-  }
-  if (csW > 0) {
-    doc.setFillColor(71, 85, 105); // Slate
-    doc.rect(currentX, drawY + 14, csW, barH, 'F');
-    currentX += csW;
-  }
-
-  // Recommended Target Bar
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Recommended (${riskProfile})`, drawX, drawY + 24);
-
-  currentX = drawX;
-  const tEqW = (targetEquity / 100) * barW;
-  const tDtW = (targetDebt / 100) * barW;
-  const tCsW = (targetCash / 100) * barW;
-
-  if (tEqW > 0) {
-    doc.setFillColor(8, 145, 178);
-    doc.rect(currentX, drawY + 26, tEqW, barH, 'F');
-    currentX += tEqW;
-  }
-  if (tDtW > 0) {
-    doc.setFillColor(217, 119, 6);
-    doc.rect(currentX, drawY + 26, tDtW, barH, 'F');
-    currentX += tDtW;
-  }
-  if (tCsW > 0) {
-    doc.setFillColor(71, 85, 105);
-    doc.rect(currentX, drawY + 26, tCsW, barH, 'F');
-    currentX += tCsW;
-  }
-
-  // Legend
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  
-  doc.setFillColor(8, 145, 178);
-  doc.rect(drawX, drawY + 34, 3, 3, 'F');
-  doc.setTextColor(71, 85, 105);
-  doc.text("Equity", drawX + 5, drawY + 36.5);
-
-  doc.setFillColor(217, 119, 6);
-  doc.rect(drawX + 22, drawY + 34, 3, 3, 'F');
-  doc.text("Debt", drawX + 27, drawY + 36.5);
-
-  doc.setFillColor(71, 85, 105);
-  doc.rect(drawX + 44, drawY + 34, 3, 3, 'F');
-  doc.text("Cash", drawX + 49, drawY + 36.5);
-
-  currentY = (doc.lastAutoTable?.finalY || currentY) + 8;
-
-  // ── AI SMART REBALANCING DIAGNOSTIC ──
-  currentY = drawSectionHeader(doc, "AI Smart Rebalancing Diagnostic", currentY);
-
-  const diff = currentEquityPct - targetEquity;
-  let needsRebalance = false;
-  let statusStr = "PORTFOLIO BALANCED";
-  let statusColor = [5, 150, 105]; // Green
-  let recommendation = '';
-
-  if (diff > 5) {
-    needsRebalance = true;
-    statusStr = "ACTION REQUIRED";
-    statusColor = [217, 119, 6]; // Amber
-    recommendation = `Your portfolio has a higher equity exposure (${formatPercent(currentEquityPct)}) than recommended for your ${riskProfile} risk profile. Consider shifting approx. ${formatINR((diff / 100) * totalAllocValue)} into Fixed Income/Debt assets to realign exposure.`;
-  } else if (diff < -5) {
-    needsRebalance = true;
-    statusStr = "ACTION REQUIRED";
-    statusColor = [217, 119, 6]; // Amber
-    recommendation = `Your portfolio is currently underweight in equities (${formatPercent(currentEquityPct)}) compared to your recommended target of ${formatPercent(targetEquity)}. Consider allocating ${formatINR((Math.abs(diff) / 100) * totalAllocValue)} into Equities/ETFs.`;
-  } else {
-    recommendation = "Your current allocation is aligned with your selected risk profile. No rebalancing actions are required.";
-  }
-
-  const diagCardX = 15;
+  const isRebalanceAction = data.advisor.needs_rebalancing;
+  const diagCardX = marginX;
   const diagCardY = currentY;
-  const diagCardW = width - 30;
+  const diagCardW = contentWidth;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  const splitRec = doc.splitTextToSize(recommendation, diagCardW - 12);
-  const recHeight = splitRec.length * 4.5;
-  const diagCardH = 26 + recHeight;
+  // Recommendation text wrapper
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  const splitRec = doc.splitTextToSize(data.advisor.recommendation, diagCardW - 14);
+  const recHeight = splitRec.length * 3.8;
+  const diagCardH = 20 + recHeight + (isRebalanceAction && data.advisor.rebalance_amount > 0 ? 9 : 0);
 
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(diagCardX, diagCardY, diagCardW, diagCardH, 2, 2, 'F');
-  doc.rect(diagCardX, diagCardY, diagCardW, diagCardH, 'S');
-  
-  doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+  doc.roundedRect(diagCardX, diagCardY, diagCardW, diagCardH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(diagCardX, diagCardY, diagCardW, diagCardH, 1.5, 1.5, 'S');
+
+  // Accent Line
+  const diagColor = isRebalanceAction ? [245, 158, 11] : [16, 185, 129];
+  doc.setFillColor(diagColor[0], diagColor[1], diagColor[2]);
   doc.rect(diagCardX, diagCardY + 2, 1.5, diagCardH - 4, 'F');
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
+  // Top Status Row
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
   doc.setTextColor(100, 116, 139);
-  doc.text("DIAGNOSTIC STATUS:", diagCardX + 6, diagCardY + 6);
-  doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
-  doc.text(statusStr, diagCardX + 38, diagCardY + 6);
+  doc.text('DIAGNOSTIC STATUS:', diagCardX + 5, diagCardY + 5.5);
 
+  const statusBadgeBg = isRebalanceAction ? [254, 243, 199] : [209, 250, 229];
+  const statusBadgeText = isRebalanceAction ? [180, 83, 9] : [6, 95, 70];
+  const statBadgeW = doc.getTextWidth(data.advisor.diagnostic_status) + 7;
+  doc.setFillColor(statusBadgeBg[0], statusBadgeBg[1], statusBadgeBg[2]);
+  doc.roundedRect(diagCardX + 41, diagCardY + 2.2, statBadgeW, 4.8, 0.8, 0.8, 'F');
+  doc.setTextColor(statusBadgeText[0], statusBadgeText[1], statusBadgeText[2]);
+  doc.setFontSize(6);
+  doc.text(data.advisor.diagnostic_status, diagCardX + 44.5, diagCardY + 5.5);
+
+  // Target Benchmark
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
   doc.setTextColor(100, 116, 139);
-  doc.text("TARGET PROFILE:", diagCardX + 110, diagCardY + 6);
+  doc.text('TARGET BENCHMARK:', diagCardX + 104, diagCardY + 5.5);
+  doc.setTextColor(3, 105, 161);
+  doc.text(data.investor.risk_profile, diagCardX + 138, diagCardY + 5.5);
+
+  // Portfolio Risk
+  doc.setTextColor(100, 116, 139);
+  doc.text('PORTFOLIO RISK:', diagCardX + 5, diagCardY + 11.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(riskProfile, diagCardX + 138, diagCardY + 6);
+  doc.text(data.advisor.portfolio_risk, diagCardX + 41, diagCardY + 11.5);
 
-  doc.setTextColor(100, 116, 139);
-  doc.text("CURRENT EQUITIES:", diagCardX + 6, diagCardY + 12);
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatPercent(currentEquityPct), diagCardX + 38, diagCardY + 12);
+  if (isRebalanceAction && data.advisor.rebalance_amount > 0) {
+    doc.setTextColor(100, 116, 139);
+    doc.text('RECOMMENDED SHIFT:', diagCardX + 104, diagCardY + 11.5);
+    doc.setTextColor(180, 83, 9);
+    doc.text(formatINR(data.advisor.rebalance_amount), diagCardX + 138, diagCardY + 11.5);
+  }
 
-  doc.setTextColor(100, 116, 139);
-  doc.text("TARGET EQUITIES:", diagCardX + 110, diagCardY + 6);
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatPercent(targetEquity), diagCardX + 138, diagCardY + 12);
-
+  // Divider
   doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(0.25);
-  doc.line(diagCardX + 6, diagCardY + 16, diagCardX + diagCardW - 6, diagCardY + 16);
+  doc.setLineWidth(0.2);
+  doc.line(diagCardX + 5, diagCardY + 14.5, diagCardX + diagCardW - 5, diagCardY + 14.5);
 
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(8, 145, 178); // Cyan
-  doc.text("ADVISOR RECOMMENDATION:", diagCardX + 6, diagCardY + 21);
+  // Recommendation Callout Box
+  const calloutY = diagCardY + 17.5;
+  const calloutH = recHeight + 3.5;
+  doc.setFillColor(255, 251, 235); // Amber 50
+  doc.roundedRect(diagCardX + 5, calloutY, diagCardW - 10, calloutH, 1, 1, 'F');
+  doc.setDrawColor(253, 230, 138); // Amber 200
+  doc.roundedRect(diagCardX + 5, calloutY, diagCardW - 10, calloutH, 1, 1, 'S');
 
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(71, 85, 105);
-  doc.text(splitRec, diagCardX + 6, diagCardY + 25);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(146, 64, 14); // Dark amber
+  doc.text('AI ADVISOR RECOMMENDATION:', diagCardX + 8, calloutY + 4.2);
 
-  currentY += diagCardH + 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(69, 26, 3);
+  doc.text(splitRec, diagCardX + 8, calloutY + 8);
 
   // ============================================================================
-  // PAGE 2 — PORTFOLIO HOLDINGS DETAIL
+  // PAGE 2 — PORTFOLIO HOLDINGS DETAIL & SYSTEMATIC PROGRESS
   // ============================================================================
   doc.addPage();
-  currentY = 20;
+  currentY = 18;
 
-  currentY = drawSectionHeader(doc, "Portfolio Holdings Detail", currentY);
+  currentY = drawSectionHeader(doc, 'Portfolio Holdings Detail', currentY);
 
-  const portfolioRows = [];
-  normalizedPortfolio.forEach(item => {
-    const units = getPortfolioUnits(item);
-    const buyPrice = getPortfolioBuyPrice(item);
-    const currPrice = getPortfolioCurrentPrice(item);
-    const totalVal = getPortfolioCurrentValue(item);
-    const pnlPct = getPortfolioPnLPct(item);
-    const pnlVal = totalVal - (units !== 'N/A' ? safeNumber(units) * buyPrice : 0);
+  const portfolioTableRows = data.holdings.map(item => ({
+    symbol: item.symbol,
+    category: item.asset_type,
+    quantity: formatNumber(item.quantity),
+    buyPrice: formatINR(item.average_buy_price),
+    currPrice: formatINR(item.current_price),
+    source: item.price_source,
+    invested: formatINR(item.invested_value),
+    currentVal: formatINR(item.current_value),
+    pnl: `${formatINR(item.profit_loss, true)} (${formatPercent(item.profit_loss_pct, true)})`,
+    pnlRaw: item.profit_loss,
+  }));
 
-    portfolioRows.push({
-      symbol: item.symbol || item.asset_name || item.name || 'N/A',
-      category: (item.asset_type || item.category || 'N/A').toUpperCase(),
-      units: units === 'N/A' ? 'N/A' : safeNumber(units).toLocaleString('en-IN'),
-      buyPrice: buyPrice > 0 ? formatINR(buyPrice) : '—',
-      currPrice: currPrice > 0 ? formatINR(currPrice) : '—',
-      totalValue: formatINR(totalVal),
-      pnl: `${pnlVal >= 0 ? '+' : ''}${formatINR(pnlVal)} (${formatPercent(pnlPct, true)})`,
-      pnlRaw: pnlVal
-    });
-  });
-
-  if (portfolioRows.length === 0) {
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9.5);
+  if (portfolioTableRows.length === 0) {
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(marginX, currentY, contentWidth, 12, 1, 1, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(marginX, currentY, contentWidth, 12, 'S');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text("No portfolio holdings available.", 15, currentY);
-    currentY += 12;
+    doc.text('No active portfolio holdings recorded.', marginX + 5, currentY + 7.5);
+    currentY += 16;
   } else {
     renderTable(doc, {
       startY: currentY,
-      margin: { left: 15, right: 15 },
+      margin: { left: marginX, right: marginX },
       columns: [
-        { header: "Asset Symbol / Name", dataKey: "symbol" },
-        { header: "Category", dataKey: "category" },
-        { header: "Units Held", dataKey: "units" },
-        { header: "Avg Buy Price", dataKey: "buyPrice" },
-        { header: "Current Market Price", dataKey: "currPrice" },
-        { header: "Market Value", dataKey: "totalValue" },
-        { header: "Profit / Loss (P&L)", dataKey: "pnl" }
+        { header: 'Asset / Symbol', dataKey: 'symbol' },
+        { header: 'Type', dataKey: 'category' },
+        { header: 'Qty', dataKey: 'quantity' },
+        { header: 'Avg Buy', dataKey: 'buyPrice' },
+        { header: 'Current Price', dataKey: 'currPrice' },
+        { header: 'Source', dataKey: 'source' },
+        { header: 'Invested', dataKey: 'invested' },
+        { header: 'Current Value', dataKey: 'currentVal' },
+        { header: 'Profit / Loss (P&L)', dataKey: 'pnl' },
       ],
-      body: portfolioRows,
+      body: portfolioTableRows,
       foot: [
         [
-          { content: "TOTAL PORTFOLIO VALUE", colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
-          { content: formatINR(portfolioVal), colSpan: 2, styles: { fontStyle: 'bold', textColor: [8, 145, 178] } }
+          { content: 'TOTAL PORTFOLIO MARKET VALUE', colSpan: 7, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: formatINR(data.summary.total_current_value), colSpan: 2, styles: { fontStyle: 'bold', textColor: [3, 105, 161] } },
         ],
         [
-          { content: "TOTAL INVESTED CAPITAL", colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
-          { content: formatINR(totalBuyVal), colSpan: 2, styles: { fontStyle: 'bold', textColor: [71, 85, 105] } }
+          { content: 'TOTAL INVESTED CAPITAL BASIS', colSpan: 7, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: formatINR(data.summary.total_invested), colSpan: 2, styles: { fontStyle: 'bold', textColor: [51, 65, 85] } },
         ],
         [
-          { content: "TOTAL PROFIT / LOSS", colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
-          { content: `${overallPnLVal >= 0 ? '+' : ''}${formatINR(overallPnLVal)} (${formatPercent(overallPnLPct, true)})`, colSpan: 2, styles: { fontStyle: 'bold', textColor: overallPnLVal >= 0 ? [5, 150, 105] : [220, 38, 38] } }
-        ]
+          { content: 'TOTAL UNREALIZED NET P/L', colSpan: 7, styles: { halign: 'right', fontStyle: 'bold' } },
+          { 
+            content: `${formatINR(data.summary.total_profit_loss, true)} (${formatPercent(data.summary.total_profit_loss_pct, true)})`, 
+            colSpan: 2, 
+            styles: { 
+              fontStyle: 'bold', 
+              textColor: data.summary.total_profit_loss >= 0 ? [5, 150, 105] : [220, 38, 38] 
+            } 
+          },
+        ],
       ],
       theme: 'plain',
       styles: {
         textColor: [30, 41, 59],
-        fontSize: 8,
-        cellPadding: 3,
+        fontSize: 7,
+        cellPadding: 2.2,
         lineColor: [226, 232, 240],
-        lineWidth: 0.1
+        lineWidth: 0.1,
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 8
+        fontSize: 7,
       },
       bodyStyles: {
-        fillColor: [255, 255, 255]
+        fillColor: [255, 255, 255],
       },
       alternateRowStyles: {
-        fillColor: [248, 250, 252]
+        fillColor: [248, 250, 252],
       },
       footStyles: {
         fillColor: [248, 250, 252],
         textColor: [15, 23, 42],
-        fontSize: 8,
+        fontSize: 7,
         lineColor: [226, 232, 240],
-        lineWidth: 0.1
+        lineWidth: 0.1,
       },
-      willDrawCell: (data) => {
-        if (data.column.dataKey === 'category' && data.cell.section === 'body') {
-          data.cell.rawText = data.cell.text[0];
-          data.cell.text = ['']; // clear to draw badge
+      columnStyles: {
+        quantity: { halign: 'right' },
+        buyPrice: { halign: 'right' },
+        currPrice: { halign: 'right' },
+        source: { halign: 'center' },
+        invested: { halign: 'right' },
+        currentVal: { halign: 'right', fontStyle: 'bold' },
+        pnl: { halign: 'right', fontStyle: 'bold' },
+      },
+      willDrawCell: (cellData) => {
+        if (cellData.column.dataKey === 'category' && cellData.cell.section === 'body') {
+          cellData.cell.rawText = cellData.cell.text[0];
+          cellData.cell.text = [''];
         }
       },
-      didDrawCell: (data) => {
-        if (data.column.dataKey === 'category' && data.cell.section === 'body') {
-          const cell = data.cell;
+      didDrawCell: (cellData) => {
+        if (cellData.column.dataKey === 'category' && cellData.cell.section === 'body') {
+          const cell = cellData.cell;
           const rawText = cell.rawText || '';
-          const x = cell.x + 2;
-          const y = cell.y + 1.5;
-          const w = cell.width - 4;
-          const h = cell.height - 3;
-          
-          let bg = [241, 245, 249];
-          let text = [71, 85, 105];
-          const cat = rawText.toLowerCase();
-          
-          if (cat.includes('stock')) {
-            bg = [224, 242, 254]; // cyan-50
-            text = [8, 145, 178]; // cyan-600
-          } else if (cat.includes('mutual fund') || cat.includes('mfs') || cat.includes('mf')) {
-            bg = [238, 242, 255]; // indigo-50
-            text = [79, 70, 229]; // indigo-600
-          } else if (cat.includes('etf')) {
-            bg = [243, 232, 255]; // purple-50
-            text = [147, 51, 234]; // purple-600
-          } else if (cat.includes('crypto')) {
-            bg = [253, 242, 248]; // pink-50
-            text = [219, 39, 119];
-          } else if (cat.includes('fd') || cat.includes('fixed deposit') || cat.includes('bond') || cat.includes('debt')) {
-            bg = [254, 243, 199]; // amber-50
-            text = [217, 119, 6]; // amber-600
-          } else if (cat.includes('cash') || cat.includes('liquid')) {
-            bg = [209, 250, 229]; // emerald-50
-            text = [5, 150, 105]; // emerald-600
-          }
+          const x = cell.x + 1;
+          const y = cell.y + 0.8;
+          const w = cell.width - 2;
+          const h = cell.height - 1.6;
 
-          doc.setFillColor(bg[0], bg[1], bg[2]);
-          doc.roundedRect(x, y, w, h, 1, 1, 'F');
-          
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
-          doc.setTextColor(text[0], text[1], text[2]);
-          
+          const pal = ASSET_PALETTE[rawText] || { bg: [241, 245, 249], text: [71, 85, 105] };
+
+          doc.setFillColor(pal.bg[0], pal.bg[1], pal.bg[2]);
+          doc.roundedRect(x, y, w, h, 0.8, 0.8, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5.5);
+          doc.setTextColor(pal.text[0], pal.text[1], pal.text[2]);
+
           const textWidth = doc.getTextWidth(rawText);
           const textX = x + (w - textWidth) / 2;
-          const textY = y + (h / 2) + 2;
+          const textY = y + (h / 2) + 1.5;
           doc.text(rawText, textX, textY);
         }
 
-        if (data.column.dataKey === 'pnl' && data.cell.section === 'body') {
-          const valText = data.cell.text[0] || '';
-          if (valText.startsWith('+')) {
-            doc.setTextColor(5, 150, 105); // green
-          } else if (valText.startsWith('-')) {
-            doc.setTextColor(220, 38, 38); // red
+        if (cellData.column.dataKey === 'pnl' && cellData.cell.section === 'body') {
+          const valText = cellData.cell.text[0] || '';
+          if (valText.startsWith('Rs. +') || valText.startsWith('+')) {
+            doc.setTextColor(5, 150, 105);
+          } else if (valText.startsWith('Rs. -') || valText.startsWith('-')) {
+            doc.setTextColor(220, 38, 38);
           }
         }
-      }
+      },
     });
-    currentY = doc.lastAutoTable.finalY + 8;
+    currentY = doc.lastAutoTable.finalY + 6;
   }
 
-  // ============================================================================
-  // PAGE 3 — FINANCIAL GOALS & INSIGHTS
-  // ============================================================================
-  doc.addPage();
-  currentY = 20;
+  // ── DYNAMIC SECTION: FINANCIAL GOALS & PROGRESS ──
+  const requiredGoalsSpace = data.goals.length > 0 ? 55 : 24;
+  if (height - 22 - currentY < requiredGoalsSpace) {
+    doc.addPage();
+    currentY = 18;
+  }
 
-  currentY = drawSectionHeader(doc, "Financial Goals & Progress", currentY);
+  currentY = drawSectionHeader(doc, 'Financial Goals & Systematic Progress', currentY);
 
-  // Goal Summary Blocks X range: 15 to 195 (width = 180mm)
-  // 4 cards of width 42mm, with 4mm gaps
-  const goalCardW = 42;
-  const goalCardH = 15;
-  const goalCardGap = 4;
-  const goalRowY = currentY;
+  if (data.goals.length === 0) {
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(marginX, currentY, contentWidth, 12, 1, 1, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(marginX, currentY, contentWidth, 12, 1, 1, 'S');
 
-  // Card 1: TOTAL ACTIVE GOALS
-  doc.setFillColor(248, 250, 252);
-  doc.rect(15, goalRowY, goalCardW, goalCardH, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.rect(15, goalRowY, goalCardW, goalCardH, 'S');
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text("ACTIVE GOALS", 18, goalRowY + 4.5);
-  doc.setFontSize(10);
-  doc.setTextColor(30, 41, 59);
-  doc.text(String(normalizedGoals.length), 18, goalRowY + 11);
-
-  // Card 2: TOTAL TARGET VALUE
-  doc.setFillColor(248, 250, 252);
-  doc.rect(15 + goalCardW + goalCardGap, goalRowY, goalCardW, goalCardH, 'F');
-  doc.rect(15 + goalCardW + goalCardGap, goalRowY, goalCardW, goalCardH, 'S');
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text("TOTAL TARGET", 15 + goalCardW + goalCardGap + 3, goalRowY + 4.5);
-  doc.setFontSize(9);
-  doc.setTextColor(30, 41, 59);
-  doc.text(formatINR(totalTarget), 15 + goalCardW + goalCardGap + 3, goalRowY + 11);
-
-  // Card 3: TOTAL SAVED
-  doc.setFillColor(248, 250, 252);
-  doc.rect(15 + (goalCardW + goalCardGap) * 2, goalRowY, goalCardW, goalCardH, 'F');
-  doc.rect(15 + (goalCardW + goalCardGap) * 2, goalRowY, goalCardW, goalCardH, 'S');
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text("TOTAL SAVED", 15 + (goalCardW + goalCardGap) * 2 + 3, goalRowY + 4.5);
-  doc.setFontSize(9);
-  doc.setTextColor(5, 150, 105);
-  doc.text(formatINR(totalSaved), 15 + (goalCardW + goalCardGap) * 2 + 3, goalRowY + 11);
-
-  // Card 4: OVERALL PROGRESS
-  doc.setFillColor(248, 250, 252);
-  doc.rect(15 + (goalCardW + goalCardGap) * 3, goalRowY, goalCardW, goalCardH, 'F');
-  doc.rect(15 + (goalCardW + goalCardGap) * 3, goalRowY, goalCardW, goalCardH, 'S');
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text("OVERALL PROGRESS", 15 + (goalCardW + goalCardGap) * 3 + 3, goalRowY + 4.5);
-  doc.setFontSize(10);
-  doc.setTextColor(8, 145, 178);
-  doc.text(formatPercent(overallProgress), 15 + (goalCardW + goalCardGap) * 3 + 3, goalRowY + 11);
-
-  currentY = goalRowY + goalCardH + 6;
-
-  // Goals Table
-  const goalRows = [];
-  normalizedGoals.forEach(g => {
-    const target = getGoalTargetAmount(g);
-    const saved = getGoalSavedAmount(g);
-    const remaining = Math.max(0, target - saved);
-    const completion = getGoalProgress(g);
-
-    let status = "ON TRACK";
-    if (completion >= 100) {
-      status = "COMPLETED";
-    } else if (completion >= 50) {
-      status = "MILESTONE REACHED";
-    } else {
-      status = remaining > (target * 0.7) ? "NEEDS ATTENTION" : "ON TRACK";
-    }
-
-    goalRows.push({
-      title: g.title || g.name || 'N/A',
-      target: formatINR(target),
-      saved: formatINR(saved),
-      remaining: formatINR(remaining),
-      completion: completion, // numeric completion for visual rendering
-      targetDate: formatDate(g.target_date || g.targetDate),
-      status: status
-    });
-  });
-
-  if (goalRows.length === 0) {
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text("No financial goals available.", 15, currentY);
-    currentY += 12;
+    doc.text('No active financial goals. Create systematic goals to track milestone progress.', marginX + 6, currentY + 7.5);
+    currentY += 16;
   } else {
+    // 4 Mini Summary Cards for Goals
+    const gCardW = (contentWidth - 9) / 4;
+    const gCardH = 13.5;
+    const gRowY = currentY;
+
+    // Card 1: Active Goals
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX, gRowY, gCardW, gCardH, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(marginX, gRowY, gCardW, gCardH, 'S');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('ACTIVE GOALS', marginX + 3.5, gRowY + 4.5);
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(String(data.goals.length), marginX + 3.5, gRowY + 10);
+
+    // Card 2: Total Target
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX + gCardW + 3, gRowY, gCardW, gCardH, 'F');
+    doc.rect(marginX + gCardW + 3, gRowY, gCardW, gCardH, 'S');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('TOTAL TARGET', marginX + gCardW + 6.5, gRowY + 4.5);
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text(formatINR(data.summary.total_goal_target), marginX + gCardW + 6.5, gRowY + 10);
+
+    // Card 3: Total Saved
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX + (gCardW + 3) * 2, gRowY, gCardW, gCardH, 'F');
+    doc.rect(marginX + (gCardW + 3) * 2, gRowY, gCardW, gCardH, 'S');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('TOTAL SAVED', marginX + (gCardW + 3) * 2 + 3.5, gRowY + 4.5);
+    doc.setFontSize(8.5);
+    doc.setTextColor(5, 150, 105);
+    doc.text(formatINR(data.summary.total_goal_saved), marginX + (gCardW + 3) * 2 + 3.5, gRowY + 10);
+
+    // Card 4: Overall Progress
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX + (gCardW + 3) * 3, gRowY, gCardW, gCardH, 'F');
+    doc.rect(marginX + (gCardW + 3) * 3, gRowY, gCardW, gCardH, 'S');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('OVERALL PROGRESS', marginX + (gCardW + 3) * 3 + 3.5, gRowY + 4.5);
+    doc.setFontSize(9);
+    doc.setTextColor(3, 105, 161);
+    doc.text(formatPercent(data.summary.overall_goals_progress), marginX + (gCardW + 3) * 3 + 3.5, gRowY + 10);
+
+    currentY = gRowY + gCardH + 4;
+
+    const goalTableRows = data.goals.map(g => ({
+      title: g.title,
+      category: g.category,
+      target: formatINR(g.target_amount),
+      saved: formatINR(g.current_amount),
+      remaining: formatINR(g.remaining_amount),
+      progress: g.progress_pct,
+      targetDate: g.target_date,
+      sip: g.monthly_contribution > 0 ? `${formatINR(g.monthly_contribution)}/mo` : '—',
+      status: g.status,
+    }));
+
     renderTable(doc, {
       startY: currentY,
-      margin: { left: 15, right: 15 },
+      margin: { left: marginX, right: marginX },
       columns: [
-        { header: "Goal Title", dataKey: "title" },
-        { header: "Target Amount", dataKey: "target" },
-        { header: "Saved Amount", dataKey: "saved" },
-        { header: "Remaining", dataKey: "remaining" },
-        { header: "Progress", dataKey: "completion" },
-        { header: "Target Date", dataKey: "targetDate" },
-        { header: "Status", dataKey: "status" }
+        { header: 'Goal Title', dataKey: 'title' },
+        { header: 'Category', dataKey: 'category' },
+        { header: 'Target Amount', dataKey: 'target' },
+        { header: 'Saved', dataKey: 'saved' },
+        { header: 'Remaining', dataKey: 'remaining' },
+        { header: 'Progress', dataKey: 'progress' },
+        { header: 'Target Date', dataKey: 'targetDate' },
+        { header: 'Monthly SIP', dataKey: 'sip' },
+        { header: 'Status', dataKey: 'status' },
       ],
-      body: goalRows,
+      body: goalTableRows,
       theme: 'plain',
       styles: {
         textColor: [30, 41, 59],
-        fontSize: 7.5,
-        cellPadding: 3,
+        fontSize: 6.5,
+        cellPadding: 2,
         lineColor: [226, 232, 240],
-        lineWidth: 0.1
+        lineWidth: 0.1,
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 7.5
+        fontSize: 6.5,
       },
       bodyStyles: {
-        fillColor: [255, 255, 255]
+        fillColor: [255, 255, 255],
       },
       alternateRowStyles: {
-        fillColor: [248, 250, 252]
+        fillColor: [248, 250, 252],
       },
-      willDrawCell: (data) => {
-        if (data.column.dataKey === 'completion' && data.cell.section === 'body') {
-          data.cell.rawText = data.cell.text[0];
-          data.cell.text = ['']; // clear to draw horizontal progress bar
+      columnStyles: {
+        target: { halign: 'right' },
+        saved: { halign: 'right', fontStyle: 'bold' },
+        remaining: { halign: 'right' },
+        progress: { cellWidth: 26 },
+        sip: { halign: 'right' },
+        status: { halign: 'center' },
+      },
+      willDrawCell: (cellData) => {
+        if (cellData.column.dataKey === 'progress' && cellData.cell.section === 'body') {
+          cellData.cell.rawText = cellData.cell.text[0];
+          cellData.cell.text = [''];
         }
-        if (data.column.dataKey === 'status' && data.cell.section === 'body') {
-          data.cell.rawText = data.cell.text[0];
-          data.cell.text = ['']; // clear to draw badge
+        if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+          cellData.cell.rawText = cellData.cell.text[0];
+          cellData.cell.text = [''];
         }
       },
-      didDrawCell: (data) => {
-        // Draw horizontal progress bar inside cell
-        if (data.column.dataKey === 'completion' && data.cell.section === 'body') {
-          const cell = data.cell;
+      didDrawCell: (cellData) => {
+        // Horizontal progress bar + percentage on single line
+        if (cellData.column.dataKey === 'progress' && cellData.cell.section === 'body') {
+          const cell = cellData.cell;
           const val = safeNumber(cell.raw);
-          
-          const barX = cell.x + 2;
-          const barY = cell.y + (cell.height / 2) - 1.5;
-          const barW = cell.width - 4;
-          const barH = 3;
+          const barX = cell.x + 1.5;
+          const barW = 14;
+          const barH = 2.4;
+          const barY = cell.y + (cell.height - barH) / 2;
 
           doc.setFillColor(241, 245, 249);
-          doc.rect(barX, barY, barW, barH, 'F');
+          doc.roundedRect(barX, barY, barW, barH, 0.6, 0.6, 'F');
 
           const filledW = (Math.min(100, Math.max(0, val)) / 100) * barW;
           if (filledW > 0) {
-            doc.setFillColor(8, 145, 178); // Cyan
-            doc.rect(barX, barY, filledW, barH, 'F');
+            doc.setFillColor(56, 189, 248); // Sky Blue
+            doc.roundedRect(barX, barY, filledW, barH, 0.6, 0.6, 'F');
           }
 
-          doc.setFontSize(6.5);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(71, 85, 105);
-          doc.text(`${val.toFixed(0)}%`, barX, barY - 1);
+          doc.setFontSize(5.5);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(51, 65, 85);
+          const textX = barX + barW + 1.8;
+          const textY = cell.y + (cell.height / 2) + 1.1;
+          doc.text(`${val.toFixed(1)}%`, textX, textY);
         }
 
-        // Draw Status Badge
-        if (data.column.dataKey === 'status' && data.cell.section === 'body') {
-          const cell = data.cell;
+        // Status Badge
+        if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+          const cell = cellData.cell;
           const rawText = cell.rawText || '';
-          const x = cell.x + 2;
-          const y = cell.y + 1.5;
-          const w = cell.width - 4;
-          const h = cell.height - 3;
-          
+          const x = cell.x + 1;
+          const y = cell.y + 0.8;
+          const w = cell.width - 2;
+          const h = cell.height - 1.6;
+
           let bg = [241, 245, 249];
           let text = [71, 85, 105];
-          
-          if (rawText === "COMPLETED") {
-            bg = [209, 250, 229]; // green
-            text = [5, 150, 105];
-          } else if (rawText === "MILESTONE REACHED") {
-            bg = [224, 242, 254]; // cyan
-            text = [8, 145, 178];
-          } else if (rawText === "ON TRACK") {
-            bg = [219, 234, 254]; // blue
-            text = [37, 99, 235];
-          } else if (rawText === "NEEDS ATTENTION") {
-            bg = [254, 243, 199]; // amber
-            text = [217, 119, 6];
+
+          if (rawText === 'COMPLETED') {
+            bg = [209, 250, 229];
+            text = [6, 95, 70];
+          } else if (rawText === 'MILESTONE REACHED') {
+            bg = [224, 242, 254];
+            text = [3, 105, 161];
+          } else if (rawText === 'ON TRACK') {
+            bg = [219, 234, 254];
+            text = [29, 78, 216];
+          } else if (rawText === 'NEEDS ATTENTION') {
+            bg = [254, 243, 199];
+            text = [180, 83, 9];
           }
 
           doc.setFillColor(bg[0], bg[1], bg[2]);
-          doc.roundedRect(x, y, w, h, 1, 1, 'F');
-          
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
+          doc.roundedRect(x, y, w, h, 0.8, 0.8, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5);
           doc.setTextColor(text[0], text[1], text[2]);
-          
+
           const textWidth = doc.getTextWidth(rawText);
           const textX = x + (w - textWidth) / 2;
-          const textY = y + (h / 2) + 2;
+          const textY = y + (h / 2) + 1.4;
           doc.text(rawText, textX, textY);
         }
-      }
+      },
     });
-    currentY = doc.lastAutoTable.finalY + 8;
+    currentY = doc.lastAutoTable.finalY + 6;
   }
 
-  // ── SMART WEALTH INSIGHTS ──
-  if (currentY > height - 60) {
+  // ── DYNAMIC SECTION: SMART WEALTH INSIGHTS ──
+  if (height - 22 - currentY < 38) {
     doc.addPage();
-    currentY = 20;
+    currentY = 18;
   }
 
-  currentY = drawSectionHeader(doc, "Smart Wealth Insights", currentY);
+  currentY = drawSectionHeader(doc, 'Smart Wealth Insights', currentY);
 
-  const insightsList = [];
-  if (diff > 5) {
-    insightsList.push(`Equity exposure is currently above the recommended target (+${diff.toFixed(1)}% drift) for your ${riskProfile} risk profile.`);
-  } else if (diff < -5) {
-    insightsList.push(`Equity exposure is currently below the recommended target (${diff.toFixed(1)}% drift) for your ${riskProfile} risk profile.`);
-  } else {
-    insightsList.push(`Your asset allocation is currently well aligned with the recommended targets for your ${riskProfile} risk profile.`);
-  }
+  const insightBoxY = currentY;
+  const numInsights = data.insights.length;
+  const insightBoxH = (numInsights * 5.2) + 3;
 
-  if (normalizedGoals.length > 0) {
-    const activeGoals = normalizedGoals.filter(g => getGoalProgress(g) < 100);
-    if (activeGoals.length > 0) {
-      activeGoals.sort((a, b) => getGoalProgress(b) - getGoalProgress(a));
-      const topGoal = activeGoals[0];
-      insightsList.push(`Your "${topGoal.title || topGoal.name}" goal has reached ${formatPercent(getGoalProgress(topGoal))} completion.`);
-    } else {
-      insightsList.push("All of your active financial goals are 100% completed.");
-    }
-  }
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(marginX, insightBoxY, contentWidth, insightBoxH, 1.5, 1.5, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, insightBoxY, contentWidth, insightBoxH, 1.5, 1.5, 'S');
 
-  insightsList.push(`Your portfolio currently contains ${normalizedPortfolio.length} active asset holdings.`);
-
-  if (overallPnLVal > 0) {
-    insightsList.push(`Your investment portfolio has generated a net positive return of ${formatINR(overallPnLVal)} (${formatPercent(overallPnLPct, true)}).`);
-  } else if (overallPnLVal < 0) {
-    insightsList.push(`Your investment portfolio is currently experiencing a net loss of ${formatINR(Math.abs(overallPnLVal))} (${formatPercent(overallPnLPct, true)}).`);
-  }
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
   doc.setTextColor(51, 65, 85);
-  
-  insightsList.forEach(insight => {
-    doc.setFillColor(8, 145, 178); // cyan bullet
-    doc.circle(18, currentY + 1.2, 1, 'F');
+
+  data.insights.forEach((insight, idx) => {
+    const iy = insightBoxY + 4 + (idx * 5.2);
+    // Cyan icon bullet
+    doc.setFillColor(56, 189, 248);
+    doc.circle(marginX + 5, iy + 0.8, 0.9, 'F');
+
     doc.setTextColor(51, 65, 85);
-    doc.text(insight, 22, currentY + 2);
-    currentY += 6;
+    doc.text(insight, marginX + 8.5, iy + 1.8);
   });
 
-  currentY += 4;
+  currentY = insightBoxY + insightBoxH + 6;
 
-  // ── RECENT FINANCIAL ACTIVITY ──
-  if (currentY > height - 60) {
+  // ── DYNAMIC SECTION: RECENT FINANCIAL ACTIVITY ──
+  if (height - 22 - currentY < 36) {
     doc.addPage();
-    currentY = 20;
+    currentY = 18;
   }
 
-  currentY = drawSectionHeader(doc, "Recent Financial Activity", currentY);
+  currentY = drawSectionHeader(doc, 'Recent Financial Activity & Alerts', currentY);
 
-  const alertRows = [];
-  normalizedAlerts.forEach(a => {
-    const title = a.title || 'System Notification';
-    const message = a.message || a.event || '';
-    const dateVal = a.created_at || a.timestamp || a.date;
-    
-    let dateText = 'N/A';
-    if (dateVal) {
-      try {
-        const d = new Date(dateVal);
-        if (!isNaN(d.getTime())) {
-          dateText = formatDate(dateVal) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-        } else {
-          dateText = String(dateVal);
-        }
-      } catch {
-        dateText = String(dateVal);
-      }
-    }
+  if (data.notifications.length === 0) {
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(marginX, currentY, contentWidth, 10, 1, 1, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(marginX, currentY, contentWidth, 10, 1, 1, 'S');
 
-    alertRows.push({
-      timestamp: dateText,
-      title: title,
-      message: message,
-      status: (a.severity || 'info').toUpperCase()
-    });
-  });
-
-  if (alertRows.length === 0) {
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
-    doc.text("No recent alerts or financial activity available.", 15, currentY);
+    doc.text('No recent alerts or activity records found.', marginX + 5, currentY + 6.5);
+    currentY += 14;
   } else {
+    const alertTableRows = data.notifications.map(a => ({
+      timestamp: a.timestamp,
+      title: a.title,
+      message: a.message,
+      status: a.status,
+    }));
+
     renderTable(doc, {
       startY: currentY,
-      margin: { left: 15, right: 15 },
+      margin: { left: marginX, right: marginX },
       columns: [
-        { header: "Date / Time", dataKey: "timestamp" },
-        { header: "Event", dataKey: "title" },
-        { header: "Description", dataKey: "message" },
-        { header: "Status", dataKey: "status" }
+        { header: 'Date / Time', dataKey: 'timestamp' },
+        { header: 'Event Title', dataKey: 'title' },
+        { header: 'Description', dataKey: 'message' },
+        { header: 'Status', dataKey: 'status' },
       ],
-      body: alertRows,
+      body: alertTableRows,
       theme: 'plain',
       styles: {
         textColor: [30, 41, 59],
-        fontSize: 7.5,
-        cellPadding: 3,
+        fontSize: 6.5,
+        cellPadding: 2,
         lineColor: [226, 232, 240],
-        lineWidth: 0.1
+        lineWidth: 0.1,
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 7.5
+        fontSize: 6.5,
       },
       bodyStyles: {
-        fillColor: [255, 255, 255]
+        fillColor: [255, 255, 255],
       },
       alternateRowStyles: {
-        fillColor: [248, 250, 252]
+        fillColor: [248, 250, 252],
       },
       columnStyles: {
-        message: { cellWidth: 80 }
+        timestamp: { cellWidth: 26 },
+        title: { cellWidth: 44, fontStyle: 'bold' },
+        message: { cellWidth: 92 },
+        status: { cellWidth: 20, halign: 'center' },
       },
-      willDrawCell: (data) => {
-        if (data.column.dataKey === 'status' && data.cell.section === 'body') {
-          data.cell.rawText = data.cell.text[0];
-          data.cell.text = [''];
+      willDrawCell: (cellData) => {
+        if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+          cellData.cell.rawText = cellData.cell.text[0];
+          cellData.cell.text = [''];
         }
       },
-      didDrawCell: (data) => {
-        if (data.column.dataKey === 'status' && data.cell.section === 'body') {
-          const cell = data.cell;
+      didDrawCell: (cellData) => {
+        if (cellData.column.dataKey === 'status' && cellData.cell.section === 'body') {
+          const cell = cellData.cell;
           const rawText = cell.rawText || '';
-          const x = cell.x + 2;
-          const y = cell.y + 1.5;
-          const w = cell.width - 4;
-          const h = cell.height - 3;
-          
+          const x = cell.x + 1;
+          const y = cell.y + 0.8;
+          const w = cell.width - 2;
+          const h = cell.height - 1.6;
+
           let bg = [241, 245, 249];
           let text = [71, 85, 105];
-          
-          if (rawText === "WARNING" || rawText === "AI_WARNING" || rawText === "HIGH") {
-            bg = [254, 243, 199]; // amber
-            text = [217, 119, 6];
-          } else if (rawText === "SUCCESS" || rawText === "LOW") {
-            bg = [209, 250, 229]; // green
-            text = [5, 150, 105];
-          } else if (rawText === "INFO") {
-            bg = [224, 242, 254]; // cyan
-            text = [8, 145, 178];
+
+          if (rawText === 'CRITICAL') {
+            bg = [254, 242, 242];
+            text = [220, 38, 38];
+          } else if (rawText === 'WARNING') {
+            bg = [254, 243, 199];
+            text = [180, 83, 9];
+          } else if (rawText === 'SUCCESS') {
+            bg = [209, 250, 229];
+            text = [6, 95, 70];
+          } else if (rawText === 'INFO') {
+            bg = [224, 242, 254];
+            text = [3, 105, 161];
           }
 
           doc.setFillColor(bg[0], bg[1], bg[2]);
-          doc.roundedRect(x, y, w, h, 1, 1, 'F');
-          
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
+          doc.roundedRect(x, y, w, h, 0.8, 0.8, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(5);
           doc.setTextColor(text[0], text[1], text[2]);
-          
+
           const textWidth = doc.getTextWidth(rawText);
           const textX = x + (w - textWidth) / 2;
-          const textY = y + (h / 2) + 2;
+          const textY = y + (h / 2) + 1.5;
           doc.text(rawText, textX, textY);
         }
-      }
+      },
     });
   }
 
   // ============================================================================
-  // FOOTER & DECORATIONS RUNNER (POST-PROCESSING)
+  // GLOBAL POST-PROCESSING: HEADER BARS, FOOTER & ACCURATE PAGE NUMBERS
   // ============================================================================
   const totalPages = doc.internal.getNumberOfPages();
 
-  const drawDecorations = (pageNumber, total) => {
+  const drawGlobalDecorations = (pageNumber, total) => {
+    // Header bar on pages > 1
     if (pageNumber > 1) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.setTextColor(30, 41, 59);
-      doc.text("WEALTHTRACK PRO", 15, 10);
-      
-      doc.setFont("helvetica", "normal");
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 23, 42);
+      doc.text('WEALTHTRACK PRO', marginX, 10);
+
+      doc.setFont('helvetica', 'normal');
       doc.setTextColor(148, 163, 184);
-      doc.text("|   Personal Wealth Intelligence Platform", 46, 10);
-      
+      doc.text('|   Personal Wealth Intelligence Platform', marginX + 27, 10);
+
       doc.setDrawColor(226, 232, 240);
       doc.setLineWidth(0.2);
-      doc.line(15, 12, width - 15, 12);
+      doc.line(marginX, 12, width - marginX, 12);
     }
 
+    // Bottom divider
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.2);
-    doc.line(15, height - 15, width - 15, height - 15);
+    doc.line(marginX, height - 13, width - marginX, height - 13);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
+    // Footer Left
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.text('WealthTrack Pro', marginX, height - 9);
+
+    doc.setFont('helvetica', 'normal');
     doc.setTextColor(148, 163, 184);
+    doc.text('  ·  Confidential Personal Financial Report', marginX + 18, height - 9);
 
-    doc.text("WealthTrack Pro   ·   Confidential Personal Financial Report", 15, height - 10);
+    const disclaimer = 'Disclaimer: This report is for informational and financial planning purposes only and does not constitute investment advice.';
+    doc.text(disclaimer, marginX, height - 5.5);
 
-    const disclaimer = "Disclaimer: This report is for informational and planning purposes only and does not constitute investment advice.";
-    doc.text(disclaimer, 15, height - 6);
-
+    // Footer Right: Dynamic Page X of Y
     const pageText = `Page ${pageNumber} of ${total}`;
-    doc.text(pageText, width - 15 - doc.getTextWidth(pageText), height - 11);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(pageText, width - marginX - doc.getTextWidth(pageText), height - 9);
   };
 
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    drawDecorations(i, totalPages);
+    drawGlobalDecorations(i, totalPages);
   }
 
-  // ── SAVE THE PDF FILE IN BROWSER ──────────────────────────────────────────
+  // ── SAVE / DOWNLOAD THE PDF FILE ──
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const filename = `Wealth_Summary_Report_${yyyy}-${mm}-${dd}.pdf`;
-  
-  doc.save(filename);
+  const safeName = (data.investor.name || 'User').replace(/[^a-zA-Z0-9]/g, '_');
+  const filename = `Wealth_Report_${safeName}_${yyyy}-${mm}-${dd}.pdf`;
+
+  try {
+    if (typeof window !== 'undefined' || typeof doc.save === 'function') {
+      doc.save(filename);
+    }
+  } catch (saveErr) {
+    // In node/test environments, ignore browser save errors
+  }
+  return doc;
 }
