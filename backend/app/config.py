@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://127.0.0.1:8000/api/v1/auth/google/callback"
     FRONTEND_URL: str = "http://localhost:5173"
+    
+    # Environment & Seeding
+    ENVIRONMENT: str = "development"
+    SEED_DEMO_USER: bool = True
 
     model_config = {"env_file": str(BASE_DIR / ".env"), "env_file_encoding": "utf-8"}
 

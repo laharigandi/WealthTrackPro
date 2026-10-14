@@ -1,3 +1,4 @@
+import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,23 +57,30 @@ def init_db_and_heal():
                     pass
         logger.info("Database tables and columns verified / created.")
         
-        # Auto-heal existing database records and seed default test user
+        # Auto-heal existing database records and seed default test user (development only)
         db = SessionLocal()
         try:
             heal_database_records(db)
-            demo_email = "john@example.com"
-            existing = db.query(User).filter(User.email == demo_email).first()
-            if not existing:
-                demo_user = User(
-                    name="John Doe",
-                    email=demo_email,
-                    password=get_password_hash("password123"),
-                    risk_profile=RiskProfileEnum.moderate,
-                    kyc_status=KYCStatusEnum.verified,
-                )
-                db.add(demo_user)
-                db.commit()
-                logger.info("Default demo user (john@example.com / password123) seeded successfully.")
+            is_dev = settings.ENVIRONMENT.lower() in ("development", "dev", "local", "test")
+            allow_seeding = settings.SEED_DEMO_USER and (
+                is_dev or os.getenv("SEED_DEMO_USER", "").lower() in ("true", "1", "yes")
+            )
+            if allow_seeding:
+                demo_email = "john@example.com"
+                existing = db.query(User).filter(User.email == demo_email).first()
+                if not existing:
+                    demo_user = User(
+                        name="John Doe",
+                        email=demo_email,
+                        password=get_password_hash("password123"),
+                        risk_profile=RiskProfileEnum.moderate,
+                        kyc_status=KYCStatusEnum.verified,
+                    )
+                    db.add(demo_user)
+                    db.commit()
+                    logger.info("Default demo user (john@example.com / password123) seeded successfully.")
+            else:
+                logger.info("Demo user seeding skipped (production environment or SEED_DEMO_USER disabled).")
         except Exception as seed_exc:
             logger.warning("Could not seed demo user: %s", seed_exc)
         finally:
@@ -129,17 +137,26 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS — allow Vite dev server and any localhost variant
+# CORS — allow Vite dev server, localhost variants, and configured FRONTEND_URL
 # ---------------------------------------------------------------------------
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+
+# Safely add the production frontend URL from settings if provided
+if settings.FRONTEND_URL:
+    for url in settings.FRONTEND_URL.split(","):
+        cleaned_url = url.strip().rstrip("/")
+        if cleaned_url and cleaned_url not in allowed_origins:
+            allowed_origins.append(cleaned_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
